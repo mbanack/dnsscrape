@@ -84,36 +84,42 @@ void print_query_name(const u_char *pkt, int start_idx, int pkt_len) {
     free(buf);
 }
 
-struct rr* get_answers(const u_char *pkt, struct dnsheader *dh, int start_idx, int caplen, int *parsed_an) {
-    int an_start_idx = start_idx + 12;
+struct rr* get_answers(const u_char *pkt, struct dnsheader *dh, int header_idx, int an_start_idx, int caplen, int *parsed_an) {
     struct rr *root = malloc(sizeof(struct rr));
+    init_rr(root);
     struct rr *trav = root;
     int cont = 1;
     while(cont) {
+        if(an_start_idx > caplen) {
+            fprintf(stderr, "an_start_idx > caplen in get_answers for %d %d\n", an_start_idx, caplen);
+            return root;
+        }
         cont++;
         trav->next = NULL;
         int name_len = 0;
         int next_idx = caplen;
         char *name = get_query_name(pkt, an_start_idx, caplen, &name_len, &next_idx);
         if(name) {
+            *parsed_an += 1;
             trav->name = name;
             trav->name_len = name_len;
             trav->type = parse_u16(pkt, next_idx, next_idx+1);
             trav->rrclass = parse_u16(pkt, next_idx+2, next_idx+3);
             trav->ttl = parse_u32(pkt, next_idx+4, next_idx+7);
             trav->rdlength = parse_u16(pkt, next_idx+8, next_idx+9);
-            trav->rdata = parse_rdata(pkt, trav->type, next_idx+10, trav->rdlength);
+            trav->rdata = rdata_str(pkt, trav->type, next_idx+10, trav->rdlength);
             printf("rdata is %s\n", trav->rdata);
 
             trav->next = malloc(sizeof(struct rr));
             trav = trav->next;
+            an_start_idx = next_idx+10 + trav->rdlength + 1;
         } else {
             fprintf(stderr, "get_query_name failed for get_answers an_start_idx=%d\n", an_start_idx);
             cont = 0;
         }
 
-        if(cont > 300) {
-            fprintf(stderr, "{!!} run-away get_answers");
+        if(cont > 5) {
+            fprintf(stderr, "{!!} run-away get_answers\n");
             return root;
         }
     }
@@ -124,6 +130,7 @@ void scrape_loop(pcap_t *capdev) {
     int cont = 1;
     const u_char *pkt;
     struct pcap_pkthdr hdr;
+    struct packet p;
     // struct timeval ts
     // uint32 caplen (length of portion present)
     // uint32 len (length this packet (off-wire))
@@ -131,11 +138,14 @@ void scrape_loop(pcap_t *capdev) {
         // should be using _dispatch() or _loop()
         
         pkt = pcap_next(capdev, &hdr);
+        p.len = hdr.caplen;
+        p.pkt = pkt;
         
+
         // TODO: currently I am assuming that this is a UDP packet.
         //   it should work with just offset tweaking for TCP
         //   but TCP DNS is probably rare enough to just ignore?
-        // ip/udp header is 42 bytes
+        // ethernet/ip/udp header is 42 bytes
         // dns header is 12 bytes
         if(hdr.caplen >= 55) {
             // this is long enough to be a DNS packet
@@ -147,28 +157,49 @@ void scrape_loop(pcap_t *capdev) {
             struct dnsheader *dh = parse_header(pkt, 42);
             if(is_valid_header(dh)) {
                 if(dh->qr) { //response
-                    printf("RESPONSE");
+                    printf("RESPONSE ");
                     int parsed_an = 0;
-                    struct rr *answers = get_answers(pkt, dh, 42, hdr.caplen, &parsed_an);
-                    if(dh->ancount != parsed_an) {
-                        fprintf(stderr, "an != parsed_an for %d, %d\n",
-                                dh->ancount, parsed_an);
+                    struct rr *answers;
+                    if(dh->qdcount == 0) {
+                        answers = get_answers(pkt, dh, 42, 54, hdr.caplen, &parsed_an);
+                    } else {
+                        int next_idx = 54;
+                        for(int i = 0; i < dh->qdcount; i++) {
+                            // TODO: make a skip_qsection that just gives next_idx and saves overhead
+                            struct qsection *qs = parse_qsection(&p, dh, next_idx, &next_idx);
+                            free_qsection(qs);
+                        }
+                        answers = get_answers(pkt, dh, 42, next_idx, hdr.caplen, &parsed_an);
                     }
                     if(answers) {
-                        free(answers);
+                        if(dh->ancount != parsed_an) {
+                            fprintf(stderr, "an != parsed_an for %d, %d\n",
+                                    dh->ancount, parsed_an);
+                        } else {
+                            struct rr *trav = answers;
+                            while(trav) {
+                                if(trav->rdata) {
+                                    printf("%s [%d %d %d %d] %s\n", trav->name, trav->type, trav->rrclass, trav->ttl, trav->rdlength, trav->rdata);
+                                } else {
+                                    fprintf(stderr, "trav->rdata NULL\n");
+                                }
+                                trav = trav->next;
+                            }
+                        }
+                        free_rr(answers);
+                    } else {
+                        fprintf(stderr, "answers is null\n");
                     }
                 } else { // query
-                    printf("QUERY");
+                    printf("QUERY ");
                     if(dh->qdcount > 0) {
-                        int name_len = 0;
-                        int next_idx = 0;
-                        char *name = get_query_name(pkt, 54, hdr.caplen, &name_len, &next_idx);
-                        if(name) {
-                            printf("%s\n", name);
-                            free(name);
-                        }
-                        if(dh->qdcount > 1) {
-                            printf("!! multiple query names, ignoring all but first");
+                        int next_idx = 54;
+                        for(int i=0; i<dh->qdcount; i++) {
+                            struct qsection *qs = parse_qsection(&p, dh, next_idx, &next_idx);
+                            if(qs->qname) {
+                                printf("%s %s\n", qtype_str(qs->qtype), qs->qname);
+                            }
+                            free_qsection(qs);
                         }
                     }
                 }
