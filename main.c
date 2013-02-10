@@ -84,7 +84,8 @@ void print_query_name(const u_char *pkt, int start_idx, int pkt_len) {
     free(buf);
 }
 
-struct rr* get_answers(const u_char *pkt, struct dnsheader *dh, int header_idx, int an_start_idx, int caplen, int *parsed_an) {
+struct rr* get_answers(struct dnspacket *p, int header_idx, int an_start_idx, int caplen, int *parsed_an) {
+    const uint8_t *pkt = p->pkt;
     struct rr *root = malloc(sizeof(struct rr));
     init_rr(root);
     struct rr *trav = root;
@@ -96,25 +97,35 @@ struct rr* get_answers(const u_char *pkt, struct dnsheader *dh, int header_idx, 
         }
         cont++;
         trav->next = NULL;
-        int name_len = 0;
-        int next_idx = caplen;
-        char *name = get_query_name(pkt, an_start_idx, caplen, &name_len, &next_idx);
-        if(name) {
+        int next_idx = an_start_idx;
+        // this is somewhat of an abuse of parse_qsection...
+        //   but for now they do the exact same thing, so *shrug*
+        struct qsection *qs = parse_qsection(p, next_idx, &next_idx);
+
+        if(qs && qs->qname) {
             *parsed_an += 1;
-            trav->name = name;
-            trav->name_len = name_len;
-            trav->type = parse_u16(pkt, next_idx, next_idx+1);
-            trav->rrclass = parse_u16(pkt, next_idx+2, next_idx+3);
-            trav->ttl = parse_u32(pkt, next_idx+4, next_idx+7);
-            trav->rdlength = parse_u16(pkt, next_idx+8, next_idx+9);
-            trav->rdata = rdata_str(pkt, trav->type, next_idx+10, trav->rdlength);
+            trav->name = malloc(sizeof(char) * 256);
+            strncpy(trav->name, qs->qname, 255);
+            trav->name[255] = 0;
+
+            trav->name_len = strlen(qs->qname);
+            trav->type = qs->qtype;
+            trav->rrclass = qs->qclass;
+            trav->ttl = parse_u32(pkt, next_idx, next_idx+3);
+            trav->rdlength = parse_u16(pkt, next_idx+4, next_idx+5);
+            trav->rdata = rdata_str(pkt, trav->type, next_idx+6, trav->rdlength);
             printf("rdata is %s\n", trav->rdata);
 
+            an_start_idx = next_idx+10 + trav->rdlength + 1;
+            free_qsection(qs);
+            if(next_idx >= p->len) {
+                return root;
+            }
             trav->next = malloc(sizeof(struct rr));
             trav = trav->next;
-            an_start_idx = next_idx+10 + trav->rdlength + 1;
+            init_rr(trav);
         } else {
-            fprintf(stderr, "get_query_name failed for get_answers an_start_idx=%d\n", an_start_idx);
+            fprintf(stderr, "parse_qsection failed for get_answers an_start_idx=%d\n", an_start_idx);
             cont = 0;
         }
 
@@ -130,16 +141,16 @@ void scrape_loop(pcap_t *capdev) {
     int cont = 1;
     const u_char *pkt;
     struct pcap_pkthdr hdr;
-    struct packet p;
-    // struct timeval ts
-    // uint32 caplen (length of portion present)
-    // uint32 len (length this packet (off-wire))
+    struct dnspacket p;
+    uint32_t internal_packet_no;
     while(cont) {
         // should be using _dispatch() or _loop()
         
         pkt = pcap_next(capdev, &hdr);
         p.len = hdr.caplen;
         p.pkt = pkt;
+
+        internal_packet_no++;
         
 
         // TODO: currently I am assuming that this is a UDP packet.
@@ -147,29 +158,38 @@ void scrape_loop(pcap_t *capdev) {
         //   but TCP DNS is probably rare enough to just ignore?
         // ethernet/ip/udp header is 42 bytes
         // dns header is 12 bytes
-        if(hdr.caplen >= 55) {
+        if(hdr.caplen >= 55 && hdr.caplen <= 512) {
             // this is long enough to be a DNS packet
-            uint32_t src_port = parse_u32(pkt, 34, 35);
-            uint32_t dst_port = parse_u32(pkt, 36, 37);
-            uint32_t udp_len = parse_u32(pkt, 38, 39);
-            uint32_t udp_chksum = parse_u32(pkt, 40, 41);
+            // but short enough to still be a UDP DNS packet (limit 512b)
+            p.src_port = parse_u16(pkt, 34, 35);
+            p.dst_port = parse_u16(pkt, 36, 37);
+            p.udp_len = parse_u16(pkt, 38, 39);
+            p.udp_chksum = parse_u16(pkt, 40, 41);
             //printf("%d -> %d [%d] {%d}\n", src_port, dst_port, udp_len, udp_chksum);
-            struct dnsheader *dh = parse_header(pkt, 42);
+            fill_dnsheader(&p, 42);
+            struct dnsheader *dh = &(p.dh);
             if(is_valid_header(dh)) {
+                fprintf(stderr, "[%d] ", internal_packet_no);
                 if(dh->qr) { //response
                     printf("RESPONSE ");
                     int parsed_an = 0;
                     struct rr *answers;
                     if(dh->qdcount == 0) {
-                        answers = get_answers(pkt, dh, 42, 54, hdr.caplen, &parsed_an);
+                        answers = get_answers(&p, 42, 54, hdr.caplen, &parsed_an);
                     } else {
                         int next_idx = 54;
-                        for(int i = 0; i < dh->qdcount; i++) {
+                        printf(" qdcount=%d ", dh->qdcount);
+                        for(int i = 0; i < dh->qdcount && i < 256; i++) {
                             // TODO: make a skip_qsection that just gives next_idx and saves overhead
-                            struct qsection *qs = parse_qsection(&p, dh, next_idx, &next_idx);
+                            fprintf(stderr, "{%d} ", i);
+                            struct qsection *qs = parse_qsection(&p, next_idx, &next_idx);
                             free_qsection(qs);
+                            if(next_idx == p.len) {
+                                fprintf(stderr, "parse_qsection went over the end\n");
+                                break;
+                            }
                         }
-                        answers = get_answers(pkt, dh, 42, next_idx, hdr.caplen, &parsed_an);
+                        answers = get_answers(&p, 42, next_idx, hdr.caplen, &parsed_an);
                     }
                     if(answers) {
                         if(dh->ancount != parsed_an) {
@@ -179,7 +199,14 @@ void scrape_loop(pcap_t *capdev) {
                             struct rr *trav = answers;
                             while(trav) {
                                 if(trav->rdata) {
-                                    printf("%s [%d %d %d %d] %s\n", trav->name, trav->type, trav->rrclass, trav->ttl, trav->rdlength, trav->rdata);
+                                    if(trav->name) {
+                                        printf("%s", trav->name);
+                                    }
+                                    printf(" [%d %d %d %d] ", trav->type, trav->rrclass, trav->ttl, trav->rdlength);
+                                    if(trav->rdata) {
+                                        printf("%s", trav->rdata);
+                                    }
+                                    printf("\n");
                                 } else {
                                     fprintf(stderr, "trav->rdata NULL\n");
                                 }
@@ -195,17 +222,21 @@ void scrape_loop(pcap_t *capdev) {
                     if(dh->qdcount > 0) {
                         int next_idx = 54;
                         for(int i=0; i<dh->qdcount; i++) {
-                            struct qsection *qs = parse_qsection(&p, dh, next_idx, &next_idx);
+                            struct qsection *qs = parse_qsection(&p, next_idx, &next_idx);
+                            if(!qs) {
+                                break;
+                            }
                             if(qs->qname) {
                                 printf("%s %s\n", qtype_str(qs->qtype), qs->qname);
                             }
                             free_qsection(qs);
+                            if(next_idx == p.len) {
+                                fprintf(stderr, "parse_qsection went over the end\n");
+                                break;
+                            }
                         }
                     }
                 }
-            }
-            if(dh) {
-                free(dh);
             }
         }
     }

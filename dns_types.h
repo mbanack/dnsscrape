@@ -20,41 +20,6 @@
 #ifndef DNSTYPES_H
 #define DNSTYPES_H
 
-struct packet {
-    uint32_t len;
-    const uint8_t *pkt;
-};
-
-struct dnsheader {
-    unsigned int pkt_idx;
-    uint16_t id;
-    uint8_t qr;
-    uint8_t opcode;
-    uint8_t aa;
-    uint8_t tc;
-    uint8_t rd;
-    uint8_t ra;
-    uint8_t z;
-    uint8_t rcode;
-    uint16_t qdcount;
-    uint16_t ancount;
-    uint16_t nscount;
-    uint16_t arcount;
-};
-
-struct qsection {
-    // dynamically allocated, human-readable name (ie not usable as a label ptr)
-    //   max length of qname is 255 bytes... bound all prints and buffer copies
-    char *qname;
-    uint16_t qtype;
-    uint16_t qclass;
-};
-
-struct qsection* parse_qsection(struct packet *p, struct dnsheader *h, int qs_idx, int *next_idx);
-void free_qsection(struct qsection *q);
-
-const char* qtype_str(uint16_t qtype);
-
 // qtype id to name mappings
 extern const char QT_UNKNOWN[];
 extern const char QT_A[];
@@ -80,6 +45,49 @@ extern const char QT_MAILA[];
 extern const char QT_WILD[];
 extern const char QT_AAAA[];
 extern const char QT_SRV[];
+
+struct dnsheader {
+    unsigned int pkt_idx;
+    uint16_t id;
+    uint8_t qr;
+    uint8_t opcode;
+    uint8_t aa;
+    uint8_t tc;
+    uint8_t rd;
+    uint8_t ra;
+    uint8_t z;
+    uint8_t rcode;
+    uint16_t qdcount;
+    uint16_t ancount;
+    uint16_t nscount;
+    uint16_t arcount;
+};
+
+struct dnspacket {
+    uint32_t len;
+    const uint8_t *pkt;
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint16_t udp_len;
+    uint16_t udp_chksum;
+
+    struct dnsheader dh;
+};
+
+
+struct qsection {
+    // dynamically allocated, human-readable name (ie not usable as a label ptr)
+    //   max length of qname is 255 bytes... bound all prints and buffer copies
+    char *qname;
+    uint16_t qtype;
+    uint16_t qclass;
+};
+
+struct qsection* parse_qsection(struct dnspacket *p, int qs_idx, int *next_idx);
+void free_qsection(struct qsection *q);
+
+const char* qtype_str(uint16_t qtype);
+
 
 // resource record
 struct rr {

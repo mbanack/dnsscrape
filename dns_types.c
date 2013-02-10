@@ -83,7 +83,7 @@ char* rdata_str(const uint8_t *pkt, uint16_t type, int start_idx, uint16_t len) 
         break;
     case 5: // CNAME
         printf("CNAME ");
-        return get_query_name(pkt, start_idx, start_idx+len, &name_len, &next_idx);
+        // TODO: parse_label ??
         break;
     case 12: // PTR
         printf("PTR ");
@@ -96,17 +96,12 @@ char* rdata_str(const uint8_t *pkt, uint16_t type, int start_idx, uint16_t len) 
         break;
     }
 
-
     return NULL;
 }
 
-// parse dns header from packet.
-// pkt should be a pointer to a suspected dns packet with header
-//   starting at start_idx
-// pkt should be at least start_idx + 12b long
-// returned dnsheader to be freed by caller
-struct dnsheader* parse_header(const uint8_t *pkt, int start_idx) {
-    struct dnsheader *dh = malloc(sizeof(struct dnsheader));
+void fill_dnsheader(struct dnspacket *p, int start_idx) {
+    const uint8_t *pkt = p->pkt;
+    struct dnsheader *dh = &(p->dh);
 
     dh->pkt_idx = start_idx;
     dh->id = parse_u16(pkt, start_idx, start_idx+1);
@@ -178,77 +173,10 @@ int is_valid_header(struct dnsheader *h) {
     }
 }
 
-// get the first query name (can be many, we ignore all but first)
-// returend string to be freed by caller
-char* get_query_name(const u_char *pkt, int start_idx, int pkt_len, int *ret_len, int *next_idx) {
-    int buf_len = 1024;
-    char *buf = malloc(sizeof(char) * buf_len);
-    int buf_idx = 0;
-    int idx = start_idx;
-    while(idx < pkt_len - 2) { // stop 2 bytes before end for just the name
-        u_char chunklen = pkt[idx];
-        if(chunklen == 0) {
-            // end of labels
-            break;
-        }
-
-        if((chunklen & 0xC0) == 0xC0) { // label pointer
-            uint16_t offset = 0x3FFF & parse_u16(pkt, idx, idx+1);
-            if(start_idx + offset >= pkt_len) {
-                fprintf(stderr, "Label pointer outside packet. Stop.\n");
-                free(buf);
-                return NULL;
-            }
-            int subname_len = 0;
-            int subname_next_idx = 0;
-            char *subname = get_query_name(pkt, start_idx + offset, pkt_len, &subname_len, &subname_next_idx);
-            if(subname) {
-                if(buf_idx + subname_len >= buf_len) {
-                    fprintf(stderr, "Query name too long");
-                    free(buf);
-                    return NULL;
-                }
-                strncpy(buf+buf_idx, subname, subname_len);
-                buf_idx += subname_len;
-                buf[buf_idx] = '.';
-                buf_idx += 1;
-                idx += 2;
-                free(subname);
-            }
-        } else {
-            if(idx + chunklen >= pkt_len) {
-                fprintf(stderr, "Error parsing query name: bad label length %d\n", chunklen);
-                free(buf);
-                return NULL;
-            }
-            if(buf_idx + chunklen >= buf_len) {
-                fprintf(stderr, "Query name too long");
-                free(buf);
-                return NULL;
-            }
-            
-            strncpy(buf+buf_idx, (const char *)pkt+idx+1, chunklen);
-            idx += chunklen + 1;
-            buf_idx += chunklen;
-            buf[buf_idx] = '.';
-            buf_idx += 1;
-        }
-    }
-    buf[buf_idx] = 0;
-    *ret_len = buf_idx - 1;
-    if(buf_idx - 1 >= 0) {
-        if(buf[buf_idx-1] == '.') {
-            buf[buf_idx-1] = 0;
-            *ret_len = buf_idx - 2;
-        }
-    }
-    *next_idx = idx;
-    return buf;
-}
-
 void init_rr(struct rr *r) {
     r->next = NULL;
     r->name_len = 0;
+    r->name = NULL;
     r->type = 0;
     r->rrclass = 0;
     r->ttl = 0;
@@ -260,8 +188,8 @@ void free_rr(struct rr *r) {
     struct rr *next;
     while(r) {
         next = r->next;
-        if(r->next) {
-            free(r->next);
+        if(r->name) {
+            free(r->name);
         }
         if(r->rdata) {
             free(r->rdata);
@@ -273,8 +201,7 @@ void free_rr(struct rr *r) {
 
 // return parsed qsection with human-readable name
 //   *next_idx contains the index of the next section or past p->len for "done"
-struct qsection* parse_qsection(struct packet *p, struct dnsheader *h,
-                                int qs_idx, int *next_idx) {
+struct qsection* parse_qsection(struct dnspacket *p, int qs_idx, int *next_idx) {
     struct qsection *build = malloc(sizeof(struct qsection));
     build->qname = malloc(sizeof(uint8_t) * 256);
     build->qtype = 0xFFFF;
@@ -293,12 +220,12 @@ struct qsection* parse_qsection(struct packet *p, struct dnsheader *h,
         }
         if((chunklen & 0xC0) == 0xC0) { // label pointer
             uint16_t offset = 0x3FFF & parse_u16(pkt, idx, idx+1);
-            if(h->pkt_idx + offset >= p->len) {
+            if(p->dh.pkt_idx + offset >= p->len) {
                 fprintf(stderr, "Label pointer outside packet. Stop.\n");
                 *next_idx = idx + 2;
                 return build;
             }
-            unsigned int ptr_idx = h->pkt_idx + offset;
+            unsigned int ptr_idx = p->dh.pkt_idx + offset;
             uint8_t ptr_chunklen = pkt[ptr_idx];
             while(ptr_idx < p->len && ptr_chunklen > 0) {
                 if((ptr_chunklen & 0xC0) != 0) {
@@ -310,6 +237,7 @@ struct qsection* parse_qsection(struct packet *p, struct dnsheader *h,
                 qname_len += ptr_chunklen;
                 build->qname[qname_len] = '.';
                 qname_len += 1;
+                build->qname[qname_len] = 0;
                 if(qname_len > 255) {
                     fprintf(stderr, "qname length > 255, capping with \\0\n");
                     build->qname[255] = 0;
@@ -319,14 +247,16 @@ struct qsection* parse_qsection(struct packet *p, struct dnsheader *h,
             idx += 2;
         } else { // regular qname
             if(chunklen > 63) {
-                fprintf(stderr, "Non-pointer chunk length >63. Stop.\n");
-                break;
+                fprintf(stderr, "Non-pointer chunk length >63. Invalid.\n");
+                free(build);
+                return NULL;
             }
             strncpy(build->qname + qname_len, (char*)&pkt[idx+1],
                     chunklen);
             qname_len += chunklen;
             build->qname[qname_len] = '.';
             qname_len += 1;
+            build->qname[qname_len] = 0;
             if(qname_len > 255) {
                 fprintf(stderr, "qname length > 255, capping with \\0\n");
                 build->qname[255] = 0;
@@ -335,7 +265,7 @@ struct qsection* parse_qsection(struct packet *p, struct dnsheader *h,
         }
     }
     
-    fprintf(stderr, "parse_qsection overran packet\n");
+    fprintf(stderr, "parse_qsection overran packet (%p %d %d)\n", p, qs_idx, *next_idx);
     *next_idx = p->len;
     return build;
 }
