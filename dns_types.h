@@ -63,24 +63,12 @@ struct dnsheader {
     uint16_t arcount;
 };
 
-struct dnspacket {
-    uint32_t len;
-    const uint8_t *pkt;
-    uint16_t src_port;
-    uint16_t dst_port;
-    uint16_t udp_len;
-    uint16_t udp_chksum;
-
-    struct dnsheader dh;
-};
-
 struct packet {
     uint32_t len;
     const uint8_t *pkt;
 }
 
 int is_udp(struct packet);
-
 
 struct qsection {
     struct qsection *next;
@@ -91,7 +79,6 @@ struct qsection {
     uint16_t qclass;
 };
 
-struct qsection* parse_qsection(struct dnspacket *p, int qs_idx, int *next_idx);
 void free_qsection(struct qsection *q);
 
 const char* qtype_str(uint16_t qtype);
