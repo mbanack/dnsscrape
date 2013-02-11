@@ -74,8 +74,16 @@ struct dnspacket {
     struct dnsheader dh;
 };
 
+struct packet {
+    uint32_t len;
+    const uint8_t *pkt;
+}
+
+int is_udp(struct packet);
+
 
 struct qsection {
+    struct qsection *next;
     // dynamically allocated, human-readable name (ie not usable as a label ptr)
     //   max length of qname is 255 bytes... bound all prints and buffer copies
     char *qname;
@@ -87,6 +95,26 @@ struct qsection* parse_qsection(struct dnspacket *p, int qs_idx, int *next_idx);
 void free_qsection(struct qsection *q);
 
 const char* qtype_str(uint16_t qtype);
+const char* rtype_str(uint16_t rtype) {
+int append_qsection(struct packet *p, struct dnsheader *dh, struct qsection *qtail, \
+                    int *next_idx);
+int append_name(char *str, int str_pos, const u_char *pkt, int pkt_idx);
+int append_label(char *str, int str_pos, const u_char *pkt, int pkt_idx);
+
+struct rsection {
+    struct rsection *next;
+    struct qsection *assoc_query; // or just have the qname, but then I have to
+                                  // decide whether to copy or just point to it
+    int rtype; // 1 -> an, 2 -> ns, 3 -> ar
+    // dynamically allocated, human-readable result
+    char *result;
+    int result_len;
+};
+
+void free_rsection(struct rsection *r);
+int append_rsection(struct packet *p, struct dnsheader *dh, struct rsection *rtail, \
+                    int *next_idx);
+
 
 
 // resource record
@@ -113,5 +141,7 @@ struct dnsheader* parse_header(const uint8_t *pkt, int start_idx);
 int is_valid_header(struct dnsheader *h);
 char* rdata_str(const uint8_t *pkt, uint16_t type, int start_idx, uint16_t len);
 char* get_query_name(const u_char *pkt, int start_idx, int pkt_len, int *ret_len, int *next_idx);
+
+
 
 #endif
