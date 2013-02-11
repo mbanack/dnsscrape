@@ -88,6 +88,9 @@ int append_qsection(struct packet *p, struct dnsheader *dh, \
 int append_name(char *str, int str_pos, const u_char *pkt, int pkt_idx);
 int append_label(char *str, int str_pos, const u_char *pkt, int pkt_idx);
 
+
+// there are other elements of resource records (RRs)
+// but I don't care about them
 struct rsection {
     struct rsection *next;
     struct qsection *assoc_query; // or just have the qname, but then I have to
