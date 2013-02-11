@@ -32,10 +32,14 @@ void scrape_loop(pcap_t *capdev) {
     const u_char *pkt;
     struct pcap_pkthdr hdr;
     struct packet p;
+    struct dnsheader dhead;
+    struct dnsheader *dh = &dhead;
     uint32_t internal_packet_no;
     while(cont) {
         // should be using _dispatch() or _loop()
         
+        p.len = 0;
+        p.pkt = NULL;
         pkt = pcap_next(capdev, &hdr);
         p.len = hdr.caplen;
         p.pkt = pkt;
@@ -44,7 +48,7 @@ void scrape_loop(pcap_t *capdev) {
 
         if(is_udp(&p)) {
             if(p.len >= 55 && p.len <= 512) {
-                struct dnsheader *dh = parse_header(p, 42);
+                parse_header(dh, &p, 42);
                 if(!is_valid_header(dh)) {
                     continue;
                 }
@@ -64,22 +68,36 @@ void scrape_loop(pcap_t *capdev) {
                 // if any parsing fails, drop it altogether, it's probably
                 //   something that just *looks* like DNS ;)
 
-                if(dh->qdcount > 4 || dh->ancount > 12 || dh->nscount > 4 || dh->arcount > 4) {
+                if(dh->qdcount > 4 || dh->ancount > 20 || dh->nscount > 4 || dh->arcount > 4) {
                     fprintf(stderr, "Insane counts (%d %d %d %d)\n",
                             dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
                     continue;
                 }
 
-                int next_idx = 42;
+                int next_idx = 54;
                 struct qsection *qroot = NULL;
                 struct qsection *qtail = NULL;
                 for(int i = 0; i < dh->qdcount; i++) {
-                    if(!append_qsection(&p, dh, qtail, &next_idx)) {
+                    if(!append_qsection(&p, dh, &qtail, &next_idx)) {
                         // parsing failure, bail out
                         free_qsection(qroot);
                         continue;
                     }
-                    qtail = qtail->next;
+                    if(!qtail) {
+                        fprintf(stderr, "append_qsection silently failed\n");
+                    } else {
+                        if(!qroot) {
+                            qroot = qtail;
+                        } else {
+                            qtail = qtail->next;
+                        }
+                    }
+                }
+
+                struct qsection *qtrav = qroot;
+                while(qtrav) {
+                    printf("%s\n", qtrav->qname);
+                    qtrav = qtrav->next;
                 }
 
                 struct rsection *rroot = NULL;
@@ -90,7 +108,15 @@ void scrape_loop(pcap_t *capdev) {
                         free_rsection(rroot);
                         continue;
                     }
-                    rtail = rtail->next;
+                    if(!rtail) {
+                        fprintf(stderr, "append_rsection silently failed\n");
+                    } else {
+                        if(!rroot) {
+                            rroot = rtail;
+                        } else {
+                            rtail = rtail->next;
+                        }
+                    }
                 }
                 for(int i = 0; i < dh->nscount; i++) {
                     if(!append_rsection(&p, dh, 2, rtail, &next_idx)) {
@@ -98,7 +124,15 @@ void scrape_loop(pcap_t *capdev) {
                         free_rsection(rroot);
                         continue;
                     }
-                    rtail = rtail->next;
+                    if(!rtail) {
+                        fprintf(stderr, "append_rsection silently failed\n");
+                    } else {
+                        if(!rroot) {
+                            rroot = rtail;
+                        } else {
+                            rtail = rtail->next;
+                        }
+                    }
                 }
                 for(int i = 0; i < dh->arcount; i++) {
                     if(!append_rsection(&p, dh, 3, rtail, &next_idx)) {
@@ -106,7 +140,15 @@ void scrape_loop(pcap_t *capdev) {
                         free_rsection(rroot);
                         continue;
                     }
-                    rtail = rtail->next;
+                    if(!rtail) {
+                        fprintf(stderr, "append_rsection silently failed\n");
+                    } else {
+                        if(!rroot) {
+                            rroot = rtail;
+                        } else {
+                            rtail = rtail->next;
+                        }
+                    }
                 }
 
                 // Passed all parsing
@@ -116,8 +158,6 @@ void scrape_loop(pcap_t *capdev) {
 
                 free_qsection(qroot);
                 free_rsection(rroot);
-
-                free(dh);
             }
         }
     }
@@ -164,8 +204,10 @@ int main(int argc, char *argv[]) {
     pcap_set_buffer_size(capdev, 1024);
 
     //pcap_setfilter(capdev, ?????); // have option to set just port 53 :)
+    // but it is *really nice* to be able to sniff dns on non-53 ports
     scrape_loop(capdev);
 
     pcap_close(capdev);
     return 0;
 }
+

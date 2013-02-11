@@ -65,9 +65,8 @@ uint16_t parse_u16(const uint8_t *pkt, int start_idx, int end_idx) {
     return (pkt[start_idx] << 8) | pkt[end_idx];
 }
 
-struct dnsheader* parse_header(struct packet *p, int start_idx) {
+void parse_header(struct dnsheader *dh, struct packet *p, int start_idx) {
     const uint8_t *pkt = p->pkt;
-    struct dnsheader *dh = malloc(sizeof(struct dnsheader));
 
     dh->pkt_idx = start_idx;
     dh->id = parse_u16(pkt, start_idx, start_idx+1);
@@ -85,8 +84,6 @@ struct dnsheader* parse_header(struct packet *p, int start_idx) {
     dh->ancount = parse_u16(pkt, start_idx+6, start_idx+7);
     dh->nscount = parse_u16(pkt, start_idx+8, start_idx+9);
     dh->arcount = parse_u16(pkt, start_idx+10, start_idx+11);
-
-    return dh;
 }
 
 // this is based on a cursory reading of rfc1035
@@ -143,12 +140,9 @@ int is_valid_header(struct dnsheader *h) {
 // return 0 on any parsing error
 // otherwise append the newly parsed qsection to qtail
 // next_idx points to the byte after this section
-int append_qsection(struct packet *p, struct dnsheader *dh, struct qsection *qtail,
-                    int *next_idx) {
-    struct qsection *build = malloc(sizeof(struct qsection));
-    build->qname = malloc(sizeof(uint8_t) * 256);
-    build->qtype = 0xFFFF;
-    build->qclass = 0xFFFF;
+int append_qsection(struct packet *p, struct dnsheader *dh, \
+        struct qsection **qtail, int *next_idx) {
+    struct qsection *build = make_qsection();
     int qname_len = 0;
     const uint8_t *pkt = p->pkt;
     uint32_t runaway = 0;
@@ -159,15 +153,19 @@ int append_qsection(struct packet *p, struct dnsheader *dh, struct qsection *qta
             build->qclass = parse_u16(pkt, (*next_idx)+3, (*next_idx)+4);
             build->qname[255] = 0;
             *next_idx = (*next_idx) + 5;
-            qtail->next = build;
+            if(!*qtail) {
+                *qtail = build;
+            } else {
+                (*qtail)->next = build;
+            }
             return 1;
         }
         if((chunklen & 0xC0) == 0xC0) { // label pointer
             uint16_t offset = 0x3FFF & parse_u16(pkt, (*next_idx), (*next_idx)+1);
-            if(p->dh.pkt_idx + offset >= p->len) {
+            if(dh->pkt_idx + offset >= p->len) {
                 break;
             }
-            int label_len = append_name(build->qname, &qname_len, pkt, dh->pkt_idx + offset);
+            int label_len = append_name(build->qname, qname_len, pkt, dh->pkt_idx + offset);
             if(label_len <= 0) {
                 break;
             }
@@ -175,14 +173,19 @@ int append_qsection(struct packet *p, struct dnsheader *dh, struct qsection *qta
             build->qclass = parse_u16(pkt, (*next_idx)+3, (*next_idx)+4);
             build->qname[255] = 0;
             *next_idx = (*next_idx) + 5;
-            qtail->next = build;
+            if(!*qtail) {
+                *qtail = build;
+            } else {
+                (*qtail)->next = build;
+            }
             return 1;
         } else { // regular label
-            int label_len = append_label(build->qname, &qname_len, pkt, *next_idx);
+            int label_len = append_label(build->qname, qname_len, pkt, *next_idx);
             if(label_len <= 0) {
                 break;
             }
-            next_idx += label_len;
+            *next_idx += label_len;
+            qname_len += label_len;
         }
         if(runaway++ > 12) {
             break;
@@ -204,11 +207,15 @@ int append_label(char *str, int str_pos, const u_char *pkt, int pkt_idx) {
     if(chunklen > 63) {
         return -1;
     }
-    if(str_pos + chunklen > 255) { // allow to chop off last .
+    if(str_pos + chunklen > 254) {
+        // I am chopping them off at 254 instead of 255 byte names
+        //   to simplify assuring myself that I always \0-cap
+        //   But really, who uses 255 byte domain names?
         return -1;
     }
     strncpy(str + str_pos, (char*)&pkt[pkt_idx+1], chunklen);
     str[str_pos + chunklen] = '.';
+    str[str_pos + chunklen + 1] = 0;
     return chunklen + 1;
 }
 
@@ -236,9 +243,24 @@ int append_name(char *str, int str_pos, const u_char *pkt, int pkt_idx) {
     return num_appended;
 }
 
-int append_rsection(struct packet *p, struct dnsheader *dh, \
+int append_rsection(struct packet *p, struct dnsheader *dh, int rtype, \
         struct rsection *rtail, int *next_idx) {
-    // STUB
+    struct rsection *build = make_rsection();
+    const uint8_t *pkt = p->pkt;
+    
+    while(*next_idx < p->len) {
+        return -1;
+    }
+}
+
+struct qsection* make_qsection() {
+    struct qsection *q = malloc(sizeof(struct qsection));
+    q->next = NULL;
+    q->qname = malloc(sizeof(uint8_t) * 256);
+    q->qname[0] = 0;
+    q->qtype = 0xFFFF; // qtype and qclass invalid unless updated in parse
+    q->qclass = 0xFFFF;
+    return q;
 }
 
 void free_qsection(struct qsection *q) {
@@ -253,8 +275,17 @@ void free_qsection(struct qsection *q) {
     }
 }
 
+struct rsection* make_rsection() {
+    struct rsection *r = malloc(sizeof(struct rsection));
+    r->next = NULL;
+    r->rtype = -1; // invalid
+    r->result = NULL;
+    r->result_len = -1;
+    return r;
+}
+
 void free_rsection(struct rsection *r) {
-    struct rsection *next);
+    struct rsection *next;
     while(r) {
         next = r->next;
         if(r->result) {
