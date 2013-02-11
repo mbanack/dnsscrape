@@ -83,8 +83,8 @@ void free_qsection(struct qsection *q);
 
 const char* qtype_str(uint16_t qtype);
 const char* rtype_str(uint16_t rtype) {
-int append_qsection(struct packet *p, struct dnsheader *dh, struct qsection *qtail, \
-                    int *next_idx);
+int append_qsection(struct packet *p, struct dnsheader *dh, \
+        struct qsection *qtail, int *next_idx);
 int append_name(char *str, int str_pos, const u_char *pkt, int pkt_idx);
 int append_label(char *str, int str_pos, const u_char *pkt, int pkt_idx);
 
@@ -99,36 +99,15 @@ struct rsection {
 };
 
 void free_rsection(struct rsection *r);
-int append_rsection(struct packet *p, struct dnsheader *dh, struct rsection *rtail, \
-                    int *next_idx);
-
-
-
-// resource record
-struct rr {
-    struct rr *next;
-    int name_len;
-    char *name;
-    uint16_t type;
-    uint16_t rrclass;
-    // ttl is actually signed, but only positive values are allowed
-    //   for my purposes I will basically ignore it anyways
-    uint32_t ttl;
-    uint16_t rdlength;
-    uint8_t *rdata;
-};
-
-void init_rr(struct rr *r);
-void free_rr(struct rr *r);
-
+int append_rsection(struct packet *p, struct dnsheader *dh, \
+        struct rsection *rtail, int *next_idx);
 
 uint32_t parse_u32(const uint8_t *pkt, int start_idx, int end_idx);
 uint16_t parse_u16(const uint8_t *pkt, int start_idx, int end_idx);
 struct dnsheader* parse_header(const uint8_t *pkt, int start_idx);
 int is_valid_header(struct dnsheader *h);
 char* rdata_str(const uint8_t *pkt, uint16_t type, int start_idx, uint16_t len);
-char* get_query_name(const u_char *pkt, int start_idx, int pkt_len, int *ret_len, int *next_idx);
-
-
+char* get_query_name(const u_char *pkt, int start_idx, int pkt_len, \
+        int *ret_len, int *next_idx);
 
 #endif

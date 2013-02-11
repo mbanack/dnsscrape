@@ -65,37 +65,6 @@ uint16_t parse_u16(const uint8_t *pkt, int start_idx, int end_idx) {
     return (pkt[start_idx] << 8) | pkt[end_idx];
 }
 
-char* rdata_str(const uint8_t *pkt, uint16_t type, int start_idx, uint16_t len) {
-    int name_len = 0;
-    int next_idx = 0;
-    switch(type) {
-    case 0: // ????
-        fprintf(stderr, "rdata type 0... skipping\n");
-        break;
-    case 1: // A
-        printf("A ");
-        uint32_t addr = parse_u32(pkt, start_idx, start_idx+3);
-        printf("shortcut: addr is %x\n", addr);
-        return NULL;
-        break;
-    case 5: // CNAME
-        printf("CNAME ");
-        // TODO: parse_label ??
-        break;
-    case 12: // PTR
-        printf("PTR ");
-        break;
-    case 16: // TXT
-        printf("TXT ");
-        break;
-    default:
-        fprintf(stderr, "Response type %d is not supported\n", type);
-        break;
-    }
-
-    return NULL;
-}
-
 struct dnsheader* parse_header(struct packet *p, int start_idx) {
     const uint8_t *pkt = p->pkt;
     struct dnsheader *dh = malloc(sizeof(struct dnsheader));
@@ -135,7 +104,7 @@ int is_valid_header(struct dnsheader *h) {
     if(h->rcode > 5) {
         return 0;
     }
-
+    
     if(h->qr) { // response
         if(h->rcode != 0) {
             return 0;
@@ -167,32 +136,6 @@ int is_valid_header(struct dnsheader *h) {
             fprintf(stderr, "DNS message truncated... this could cause problems.\n");
         }
         return 1;
-    }
-}
-
-void init_rr(struct rr *r) {
-    r->next = NULL;
-    r->name_len = 0;
-    r->name = NULL;
-    r->type = 0;
-    r->rrclass = 0;
-    r->ttl = 0;
-    r->rdlength = 0;
-    r->rdata = NULL;
-}
-
-void free_rr(struct rr *r) {
-    struct rr *next;
-    while(r) {
-        next = r->next;
-        if(r->name) {
-            free(r->name);
-        }
-        if(r->rdata) {
-            free(r->rdata);
-        }
-        free(r);
-        r = next;
     }
 }
 
@@ -293,8 +236,8 @@ int append_name(char *str, int str_pos, const u_char *pkt, int pkt_idx) {
     return num_appended;
 }
 
-int append_rsection(struct packet *p, struct dnsheader *dh, struct rsection *rtail, \
-                    int *next_idx) {
+int append_rsection(struct packet *p, struct dnsheader *dh, \
+        struct rsection *rtail, int *next_idx) {
     // STUB
 }
 
