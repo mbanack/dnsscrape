@@ -176,7 +176,6 @@ int append_qsection(struct packet *p, struct dnsheader *dh, \
 // returns 1/0 on success/failure
 //   postcondition on success: idx is pointing to the byte after the name
 int parse_name(char *str, struct packet *p, int dh_start, int *idx) {
-    fprintf(stderr, "parse_name(%p(%s), %p, %d, %d)\n", str, str, p, dh_start, *idx);
     str[0] = 0; // even if we fail without touching the string, 0-cap it
     int str_pos = 0;
     uint32_t runaway = 0;
@@ -217,7 +216,7 @@ int parse_name(char *str, struct packet *p, int dh_start, int *idx) {
         }
     }
 
-    fprintf(stderr, "parse_name overran packet");
+    fprintf(stderr, "parse_name overran packet\n");
     str[255] = 0; // paranoia!
     return 0;
 }
@@ -305,7 +304,6 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
 
 
     char name[256];
-    name[0] = 0;
     // parse the name within the RR data, and just drop it
     if(!parse_name(&name[0], p, dh->pkt_idx, next_idx)) {
         // abnormal exit (parse error etc)
@@ -340,7 +338,6 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
 
     // now we can parse out the rdata based on the RR type
     int success = 1;
-    fprintf(stderr, "Parsing RR type %s\n", rrtype_str(build->rrtype));
     switch(build->rrtype) {
     case 1: // A
     case 28: // AAAA
@@ -363,7 +360,6 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         break;
     case 5: // CNAME
         build->result = malloc(sizeof(char) * 256);
-        build->result[0] = 0;
         memct_str++;
         if(parse_name(build->result, p, dh->pkt_idx, next_idx)) {
             //fprintf(stderr, "CNAME success: %s\n", build->result);
@@ -375,8 +371,6 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
     case 6: {// SOA
         char mname[256];
         char rname[256];
-        mname[0] = 0;
-        rname[0] = 0;
         if(!parse_name(&mname[0], p, dh->pkt_idx, next_idx)) {
             success = 0;
             break;
@@ -392,7 +386,6 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         uint32_t mname_len = strlen(mname);
         uint32_t rname_len = strlen(rname);
         uint32_t name_len = mname_len + rname_len;
-        fprintf(stderr, "    SOA: %d %d %d\n", mname_len, rname_len, name_len);
         build->result = malloc(sizeof(char) * (name_len + 2));
         if(build->result == NULL) {
             fprintf(stderr, "malloc failed in SOA parse\n");
