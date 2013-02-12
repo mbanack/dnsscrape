@@ -83,10 +83,12 @@ struct qsection* make_qsection();
 void free_qsection(struct qsection *q);
 
 const char* qtype_str(uint16_t qtype);
-const char* rtype_str(uint16_t rtype);
+const char* rrtype_str(uint16_t rrtype);
 int append_qsection(struct packet *p, struct dnsheader *dh, \
         struct qsection **qtail, int *next_idx);
-int append_name(char *str, int str_pos, const u_char *pkt, int pkt_idx);
+int parse_name(char *str, struct packet *p, int dh_start, int *idx);
+int append_name(char *str, int str_pos, struct packet *p, int dh_start, \
+        int pkt_idx, int recurse_ct);
 int append_label(char *str, int str_pos, const u_char *pkt, int pkt_idx);
 
 
@@ -94,16 +96,17 @@ int append_label(char *str, int str_pos, const u_char *pkt, int pkt_idx);
 // but I don't care about them
 struct rsection {
     struct rsection *next;
-    int rtype; // 1 -> an, 2 -> ns, 3 -> ar
+    int type; // 1 -> an, 2 -> ns, 3 -> ar
+    uint16_t rrtype; // DNS type, A, CNAME, SOA etc
     // dynamically allocated, human-readable result
     char *result;
-    int result_len;
+    int result_len; // I may drop this...
 };
 
 struct rsection* make_rsection();
 void free_rsection(struct rsection *r);
-int append_rsection(struct packet *p, struct dnsheader *dh, int rtype, \
-        struct rsection *rtail, int *next_idx);
+int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
+        struct rsection **rtail, int *next_idx);
 
 uint32_t parse_u32(const uint8_t *pkt, int start_idx, int end_idx);
 uint16_t parse_u16(const uint8_t *pkt, int start_idx, int end_idx);
@@ -114,3 +117,4 @@ char* get_query_name(const u_char *pkt, int start_idx, int pkt_len, \
         int *ret_len, int *next_idx);
 
 #endif
+

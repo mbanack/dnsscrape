@@ -25,6 +25,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 
+#include "debug.h"
 #include "dns_types.h"
 
 void scrape_loop(pcap_t *capdev) {
@@ -34,7 +35,7 @@ void scrape_loop(pcap_t *capdev) {
     struct packet p;
     struct dnsheader dhead;
     struct dnsheader *dh = &dhead;
-    uint32_t internal_packet_no;
+    uint32_t internal_packet_no = 0;
     while(cont) {
         // should be using _dispatch() or _loop()
         
@@ -73,6 +74,13 @@ void scrape_loop(pcap_t *capdev) {
                             dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
                     continue;
                 }
+                
+                DEBUG_MF("\n");
+                printf("  Starting parse #%d for counts (%d %d %d %d)\n",
+                        internal_packet_no,
+                        dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
+
+                int fail = 0;
 
                 int next_idx = 54;
                 struct qsection *qroot = NULL;
@@ -80,8 +88,8 @@ void scrape_loop(pcap_t *capdev) {
                 for(int i = 0; i < dh->qdcount; i++) {
                     if(!append_qsection(&p, dh, &qtail, &next_idx)) {
                         // parsing failure, bail out
-                        free_qsection(qroot);
-                        continue;
+                        fail = 1;
+                        break;
                     }
                     if(!qtail) {
                         fprintf(stderr, "append_qsection silently failed\n");
@@ -93,20 +101,17 @@ void scrape_loop(pcap_t *capdev) {
                         }
                     }
                 }
-
-                struct qsection *qtrav = qroot;
-                while(qtrav) {
-                    printf("%s\n", qtrav->qname);
-                    qtrav = qtrav->next;
+                if(fail) {
+                    free_qsection(qroot);
+                    continue;
                 }
 
                 struct rsection *rroot = NULL;
                 struct rsection *rtail = NULL;
                 for(int i = 0; i < dh->ancount; i++) {
-                    if(!append_rsection(&p, dh, 1, rtail, &next_idx)) {
-                        free_qsection(qroot);
-                        free_rsection(rroot);
-                        continue;
+                    if(!append_rsection(&p, dh, 1, &rtail, &next_idx)) {
+                        fail = 1;
+                        break;
                     }
                     if(!rtail) {
                         fprintf(stderr, "append_rsection silently failed\n");
@@ -118,11 +123,16 @@ void scrape_loop(pcap_t *capdev) {
                         }
                     }
                 }
+                if(fail) {
+                    free_qsection(qroot);
+                    free_rsection(rroot);
+                    continue;
+                }
+
                 for(int i = 0; i < dh->nscount; i++) {
-                    if(!append_rsection(&p, dh, 2, rtail, &next_idx)) {
-                        free_qsection(qroot);
-                        free_rsection(rroot);
-                        continue;
+                    if(!append_rsection(&p, dh, 2, &rtail, &next_idx)) {
+                        fail = 1;
+                        break;
                     }
                     if(!rtail) {
                         fprintf(stderr, "append_rsection silently failed\n");
@@ -134,11 +144,16 @@ void scrape_loop(pcap_t *capdev) {
                         }
                     }
                 }
+                if(fail) {
+                    free_qsection(qroot);
+                    free_rsection(rroot);
+                    continue;
+                }
+
                 for(int i = 0; i < dh->arcount; i++) {
-                    if(!append_rsection(&p, dh, 3, rtail, &next_idx)) {
-                        free_qsection(qroot);
-                        free_rsection(rroot);
-                        continue;
+                    if(!append_rsection(&p, dh, 3, &rtail, &next_idx)) {
+                        fail = 1;
+                        break;
                     }
                     if(!rtail) {
                         fprintf(stderr, "append_rsection silently failed\n");
@@ -149,12 +164,35 @@ void scrape_loop(pcap_t *capdev) {
                             rtail = rtail->next;
                         }
                     }
+                }
+                if(fail) {
+                    free_qsection(qroot);
+                    free_rsection(rroot);
+                    continue;
                 }
 
                 // Passed all parsing
+                /*
                 printf("Successful parse #%d for counts (%d %d %d %d)\n",
                         internal_packet_no,
                         dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
+                */
+
+                struct qsection *qtrav = qroot;
+                while(qtrav) {
+                    if(rroot) {
+                        // visually show that this is part of a response
+                        printf("  ");
+                    }
+                    printf("-> %s %s\n", qtype_str(qtrav->qtype), qtrav->qname);
+                    qtrav = qtrav->next;
+                }
+
+                struct rsection *rtrav = rroot;
+                while(rtrav) {
+                    printf("<- %s %s\n", rrtype_str(rtrav->rrtype), rtrav->result);
+                    rtrav = rtrav->next;
+                }
 
                 free_qsection(qroot);
                 free_rsection(rroot);
@@ -162,6 +200,8 @@ void scrape_loop(pcap_t *capdev) {
         }
     }
 }
+
+const char DEFAULT_IFNAME[] = "";
 
 int main(int argc, char *argv[]) {
     int opt;
@@ -183,8 +223,7 @@ int main(int argc, char *argv[]) {
     if(!ifnd) {
         printf("Using default device \"any\"... override with \"-i ifname\"\n");
         // pcap_create will use "any" if given "", so default to that
-        ifname = malloc(sizeof(char) * 1);
-        ifname[0] = 0;
+        ifname = &DEFAULT_IFNAME;
     }
 
     printf("Using interface %s\n", ifname);
