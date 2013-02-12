@@ -29,6 +29,7 @@
 #include "dns_types.h"
 
 int quiet;
+int show_section_counts;
 
 void scrape_loop(pcap_t *capdev) {
     int cont = 1;
@@ -78,17 +79,19 @@ void scrape_loop(pcap_t *capdev) {
                 //   something that just *looks* like DNS ;)
 
                 if(dh->qdcount > 4 || dh->ancount > 20 || dh->nscount > 4 || dh->arcount > 4) {
-                    fprintf(stderr, "Insane counts (%d %d %d %d)\n",
-                            dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
+                    if(!quiet) {
+                        fprintf(stderr, "Insane counts (%d %d %d %d)\n",
+                                dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
+                    }
                     continue;
                 }
 
-#if DEBUG_PARSE_COUNTS
-                DEBUG_MF("\n");
-                printf("  Starting parse #%d for counts (%d %d %d %d)\n",
-                        internal_packet_no,
-                        dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
-#endif
+                if(show_section_counts) {
+                    DEBUG_MF("\n");
+                    printf("  Starting parse #%d for counts (%d %d %d %d)\n",
+                            internal_packet_no,
+                            dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
+                }
 
                 int fail = 0;
 
@@ -182,12 +185,11 @@ void scrape_loop(pcap_t *capdev) {
                 }
 
                 // Passed all parsing
-#if DEBUG_PARSE_COUNTS
-                printf("Successful parse #%d for counts (%d %d %d %d)\n",
-                        internal_packet_no,
-                        dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
-#endif
-               
+                if(show_section_counts) {
+                    printf("Successful parse #%d for counts (%d %d %d %d)\n",
+                            internal_packet_no,
+                            dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
+                }
 
                 struct qsection *qtrav = qroot;
                 while(qtrav) {
@@ -219,10 +221,14 @@ int main(int argc, char *argv[]) {
     int ifnd = 0;
     int ffnd = 0;
     quiet = 0;
+    show_section_counts = 0;
     char *ifname;
     char *fname;
-    while((opt = getopt(argc, argv, "qif:")) != -1) {
+    while((opt = getopt(argc, argv, "qcif:")) != -1) {
         switch (opt) {
+        case 'c':
+            show_section_counts = 1;
+            break;
         case 'q':
             quiet = 1;
             break;
@@ -236,13 +242,18 @@ int main(int argc, char *argv[]) {
             break;
         default:
             fprintf(stderr,
-"Usage: %s [-q] [-i iface] [-f file.pcap]\n\
+"Usage: %s [-p] [-q] [-i iface] [-f file.pcap]\n\
 -i: use specified intreface for capture.\n\
 -f: run using saved pcap file.  If -f is given, -i is ignored.\n\
+-c: show section counts\n\
 -q: quiet\n",
                     argv[0]);
             exit(EXIT_FAILURE);
         }
+    }
+
+    if(quiet) {
+        show_section_counts = 0;
     }
 
     char ebuf[PCAP_ERRBUF_SIZE];

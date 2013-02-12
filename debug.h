@@ -31,9 +31,6 @@ extern int memct_str;
 #define DEBUG_MF(...)
 #endif
 
-#define DEBUG_PARSE_COUNTS (0)
-
-
 void debug_enum_devs();
 
 #endif

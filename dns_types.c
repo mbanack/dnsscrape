@@ -495,7 +495,6 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         }
         return 1;
     } else {
-        fprintf(stderr, "append_rsec failed\n");
         free_rsection(build);
         return 0;
     }
