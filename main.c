@@ -28,6 +28,8 @@
 #include "debug.h"
 #include "dns_types.h"
 
+int quiet;
+
 void scrape_loop(pcap_t *capdev) {
     int cont = 1;
     const u_char *pkt;
@@ -42,6 +44,12 @@ void scrape_loop(pcap_t *capdev) {
         p.len = 0;
         p.pkt = NULL;
         pkt = pcap_next(capdev, &hdr);
+        if(!pkt) {
+            if(!quiet) {
+                printf("Got NULL packet.  Stop.\nRead %d packets (may have overflowed).\n", internal_packet_no);
+            }
+            break;
+        }
         p.len = hdr.caplen;
         p.pkt = pkt;
 
@@ -75,10 +83,12 @@ void scrape_loop(pcap_t *capdev) {
                     continue;
                 }
 
+#if DEBUG_PARSE_COUNTS
                 DEBUG_MF("\n");
                 printf("  Starting parse #%d for counts (%d %d %d %d)\n",
                         internal_packet_no,
                         dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
+#endif
 
                 int fail = 0;
 
@@ -172,11 +182,12 @@ void scrape_loop(pcap_t *capdev) {
                 }
 
                 // Passed all parsing
-                /*
+#if DEBUG_PARSE_COUNTS
                 printf("Successful parse #%d for counts (%d %d %d %d)\n",
                         internal_packet_no,
                         dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
-                */
+#endif
+               
 
                 struct qsection *qtrav = qroot;
                 while(qtrav) {
@@ -205,48 +216,85 @@ const char DEFAULT_IFNAME[] = "";
 
 int main(int argc, char *argv[]) {
     int opt;
-    int ifnd;
-    char* ifname;
-    while((opt = getopt(argc, argv, "i:")) != -1) {
+    int ifnd = 0;
+    int ffnd = 0;
+    quiet = 0;
+    char *ifname;
+    char *fname;
+    while((opt = getopt(argc, argv, "qif:")) != -1) {
         switch (opt) {
+        case 'q':
+            quiet = 1;
+            break;
         case 'i':
             ifname = optarg;
             ifnd = 1;
             break;
+        case 'f':
+            fname = optarg;
+            ffnd = 1;
+            break;
         default:
-            fprintf(stderr, "Usage: %s -i iface\n",
+            fprintf(stderr,
+"Usage: %s [-q] [-i iface] [-f file.pcap]\n\
+-i: use specified intreface for capture.\n\
+-f: run using saved pcap file.  If -f is given, -i is ignored.\n\
+-q: quiet\n",
                     argv[0]);
             exit(EXIT_FAILURE);
         }
     }
 
-    if(!ifnd) {
-        printf("Using default device \"any\"... override with \"-i ifname\"\n");
-        // pcap_create will use "any" if given "", so default to that
-        ifname = &DEFAULT_IFNAME;
+    char ebuf[PCAP_ERRBUF_SIZE];
+    if(ffnd) {
+        if(!quiet) {
+            printf("Using saved PCAP file %s\n", fname);
+        }
+
+        pcap_t *capdev = pcap_open_offline(fname, ebuf);
+        if(!capdev) {
+            fprintf(stderr, "Could not open capture file.  %s\n", ebuf);
+            return -1;
+        }
+        pcap_set_buffer_size(capdev, 1024);
+
+        //pcap_setfilter(capdev, ?????); // have option to set just port 53 :)
+        // but it is *really nice* to be able to sniff dns on non-53 ports
+        scrape_loop(capdev);
+
+        pcap_close(capdev);
+    } else {
+        if(!ifnd) {
+            printf("Using default device \"any\"... override with \"-i ifname\"\n");
+            // pcap_create will use "any" if given "", so default to that
+            ifname = (char*)&DEFAULT_IFNAME[0];
+        }
+
+        if(!quiet) {
+            printf("Using interface %s\n", ifname);
+        }
+
+        pcap_t *capdev = pcap_create(ifname, ebuf);
+        if(!capdev) {
+            fprintf(stderr, "pcap_create failed.  %s\n", ebuf);
+        }
+        // set options on capdev ?
+        //    snaplen, promisc/monitor, timeout, buffer_size, timestamp type
+        //pcap_setfilter(capdev, ?????); // have option to set just port 53 :)
+        // but it is *really nice* to be able to sniff dns on non-53 ports
+        pcap_set_promisc(capdev, 1);
+        pcap_set_buffer_size(capdev, 1024);
+        int act_ret = pcap_activate(capdev);
+
+        if(!!act_ret) {
+            fprintf(stderr, "Could not activate capture device (code %d).  Sorry!\n", act_ret);
+            return act_ret;
+        }
+
+        scrape_loop(capdev);
+
+        pcap_close(capdev);
     }
-
-    printf("Using interface %s\n", ifname);
-
-    char ebuf[1024];
-    pcap_t *capdev = pcap_create(ifname, ebuf);
-    int act_ret = pcap_activate(capdev);
-
-    if(!!act_ret) {
-        fprintf(stderr, "Could not activate capture device (%d).  Sorry!\n", act_ret);
-        return act_ret;
-    }
-
-    // set options on capdev ?
-    //    snaplen, promisc/monitor, timeout, buffer_size, timestamp type
-    pcap_set_promisc(capdev, 1);
-    pcap_set_buffer_size(capdev, 1024);
-
-    //pcap_setfilter(capdev, ?????); // have option to set just port 53 :)
-    // but it is *really nice* to be able to sniff dns on non-53 ports
-    scrape_loop(capdev);
-
-    pcap_close(capdev);
     return 0;
 }
 

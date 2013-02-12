@@ -19,7 +19,7 @@
 #ifndef DNSSCRAPE_DEBUG_H
 #define DNSSCRAPE_DEBUG_H
 
-#define DEBUG_MALLOC_FREE (1)
+#define DEBUG_MALLOC_FREE (0)
 
 extern int memct_rsec;
 extern int memct_qsec;
@@ -28,8 +28,10 @@ extern int memct_str;
 #if DEBUG_MALLOC_FREE
 #define DEBUG_MF(...)   fprintf(stderr, "[MF] {#q: %d, #r:%d, #str:%d} ", memct_qsec, memct_rsec, memct_str); fprintf(stderr, __VA_ARGS__)
 #else
-#define DEBUG_MF(...)   ()
+#define DEBUG_MF(...)
 #endif
+
+#define DEBUG_PARSE_COUNTS (0)
 
 
 void debug_enum_devs();
