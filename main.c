@@ -74,7 +74,7 @@ void scrape_loop(pcap_t *capdev) {
                             dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
                     continue;
                 }
-                
+
                 DEBUG_MF("\n");
                 printf("  Starting parse #%d for counts (%d %d %d %d)\n",
                         internal_packet_no,

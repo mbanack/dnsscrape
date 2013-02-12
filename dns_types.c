@@ -270,14 +270,14 @@ int append_name(char *str, int str_pos, struct packet *p, int dh_start, \
             }
             // recursive label pointer ... *mutter*
             //fprintf(stderr, "append_name: recursive label pointer\n");
-            int ct = append_name(str, str_pos + num_appended, p, dh_start, 
+            int ct = append_name(str, str_pos + num_appended, p, dh_start,
                     dh_start + offset, recurse_ct + 1);
             if(ct < 0) {
                 fprintf(stderr, "append_name: recursive append_name failed\n");
                 return -1;
             }
             return num_appended + 2;
-        } 
+        }
         if(str_pos + num_appended > 256) { // allow to chop off last .
             fprintf(stderr, "append_name overran 256 bytes\n");
             return -1;
@@ -298,8 +298,8 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         struct rsection **rtail, int *next_idx) {
     struct rsection *build = make_rsection();
     const uint8_t *pkt = p->pkt;
-    
-    
+
+
     char name[256];
     // parse the name within the RR data, and just drop it
     if(!parse_name(&name[0], p, dh->pkt_idx, next_idx)) {
@@ -308,7 +308,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         free_rsection(build);
         return 0;
     }
-    
+
 
     // BOUNDS CHECK: next_idx + enough for type, class, ttl, rdlength
     if(*next_idx + 2 + 2 + 4 + 2 >= p->len) {
@@ -414,7 +414,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         // allow for a full-sized dotted quad plus 65536
         build->result = malloc(sizeof(uint8_t) * (16 + 6 + rdlength + 1));
         memct_str++;
-        sprintf(build->result, "%d.%d.%d.%d %d ", 
+        sprintf(build->result, "%d.%d.%d.%d %d ",
                 p->pkt[*next_idx], p->pkt[(*next_idx)+1],
                 p->pkt[(*next_idx)+2], p->pkt[(*next_idx)+3],
                 p->pkt[(*next_idx)+4]);
