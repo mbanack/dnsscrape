@@ -224,7 +224,7 @@ int main(int argc, char *argv[]) {
     show_section_counts = 0;
     char *ifname;
     char *fname;
-    while((opt = getopt(argc, argv, "qcif:")) != -1) {
+    while((opt = getopt(argc, argv, "qci:f:")) != -1) {
         switch (opt) {
         case 'c':
             show_section_counts = 1;
@@ -293,14 +293,16 @@ int main(int argc, char *argv[]) {
         //    snaplen, promisc/monitor, timeout, buffer_size, timestamp type
         //pcap_setfilter(capdev, ?????); // have option to set just port 53 :)
         // but it is *really nice* to be able to sniff dns on non-53 ports
-        pcap_set_promisc(capdev, 1);
-        pcap_set_buffer_size(capdev, 1024);
         int act_ret = pcap_activate(capdev);
 
         if(!!act_ret) {
             fprintf(stderr, "Could not activate capture device (code %d).  Sorry!\n", act_ret);
+            fprintf(stderr, "  pcap says: %s\n", pcap_geterr(capdev));
             return act_ret;
         }
+
+        pcap_set_promisc(capdev, 1);
+        pcap_set_buffer_size(capdev, 1024);
 
         scrape_loop(capdev);
 

@@ -179,7 +179,10 @@ int parse_name(char *str, struct packet *p, int dh_start, int *idx) {
     str[0] = 0; // even if we fail without touching the string, 0-cap it
     int str_pos = 0;
     uint32_t runaway = 0;
-    while(*idx < p->len) {
+    if(*idx < 0 || dh_start < 0) {
+        return 0;
+    }
+    while((uint32_t)*idx < p->len) {
         uint8_t chunklen = p->pkt[*idx];
         if(chunklen == 0) { // end of name
             *idx += 1;
@@ -188,7 +191,7 @@ int parse_name(char *str, struct packet *p, int dh_start, int *idx) {
         }
         if((chunklen & 0xC0) == 0xC0) { // label pointer
             uint16_t offset = 0x3FFF & parse_u16(p->pkt, *idx, (*idx)+1);
-            if(dh_start + offset >= p->len) {
+            if((uint32_t)dh_start + offset >= p->len) {
                 fprintf(stderr, "parse_name: dh_start + offset >= p->len for (%d %d %d)\n", dh_start, offset, p->len);
                 break;
             }
@@ -253,6 +256,9 @@ int append_name(char *str, int str_pos, struct packet *p, int dh_start, \
     const u_char *pkt = p->pkt;
     uint8_t chunklen = pkt[pkt_idx];
     int num_appended = 0;
+    if(dh_start < 0) {
+        return 0;
+    }
     while(chunklen != 0) {
         if((chunklen & 0xC0) != 0) {
             if((chunklen & 0xC0) != 0xC0) {
@@ -261,7 +267,7 @@ int append_name(char *str, int str_pos, struct packet *p, int dh_start, \
             }
             uint16_t offset = 0x3FFF & parse_u16(p->pkt,
                     (pkt_idx + num_appended), (pkt_idx + num_appended + 1));
-            if(dh_start + offset >= p->len) {
+            if((uint32_t)dh_start + offset >= p->len) {
                 fprintf(stderr, "parse_name: dh_start + offset >= p->len for (%d %d %d)\n", dh_start, offset, p->len);
                 break;
             }
@@ -299,6 +305,9 @@ int append_name(char *str, int str_pos, struct packet *p, int dh_start, \
 // returns 1 on success, 0 on failure (any parsing error)
 int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         struct rsection **rtail, int *next_idx) {
+    if(*next_idx < 0) {
+        return 0;
+    }
     struct rsection *build = make_rsection();
     const uint8_t *pkt = p->pkt;
 
@@ -314,7 +323,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
 
 
     // BOUNDS CHECK: next_idx + enough for type, class, ttl, rdlength
-    if(*next_idx + 2 + 2 + 4 + 2 >= p->len) {
+    if((uint32_t)*next_idx + 2 + 2 + 4 + 2 >= p->len) {
         fprintf(stderr, "Failed bounds check for RR size\n");
         free_rsection(build);
         return 0;
@@ -328,7 +337,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
     *next_idx += 2;
 
     // BOUNDS CHECK: next_idx --> rdlength
-    if(*next_idx + rdlength > p->len) {
+    if((uint32_t)*next_idx + rdlength > p->len) {
         fprintf(stderr,
                 "Failed bounds check for rdlength in p->len (%d+%d %d >=? %d)\n",
                 *next_idx, rdlength, *next_idx + rdlength, p->len);
