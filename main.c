@@ -42,6 +42,9 @@ void scrape_loop(pcap_t *capdev) {
     while(cont) {
         // should be using _dispatch() or _loop()
         
+
+        fflush(stdout);
+        fflush(stderr);
         p.len = 0;
         p.pkt = NULL;
         pkt = pcap_next(capdev, &hdr);
