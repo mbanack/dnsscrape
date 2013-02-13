@@ -352,7 +352,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
     case 28: // AAAA
         build->result = malloc(sizeof(char) * 17);
         memct_str++;
-        sprintf(build->result, "%d.%d.%d.%d",
+        snprintf(build->result, 17, "%d.%d.%d.%d",
                 p->pkt[*next_idx], p->pkt[(*next_idx)+1],
                 p->pkt[(*next_idx)+2], p->pkt[(*next_idx)+3]);
         build->result[16] = 0;
@@ -427,7 +427,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         // allow for a full-sized dotted quad plus 65536
         build->result = malloc(sizeof(uint8_t) * (16 + 6 + rdlength + 1));
         memct_str++;
-        sprintf(build->result, "%d.%d.%d.%d %d ",
+        snprintf(build->result, 17 + 8, "%d.%d.%d.%d %d ",
                 p->pkt[*next_idx], p->pkt[(*next_idx)+1],
                 p->pkt[(*next_idx)+2], p->pkt[(*next_idx)+3],
                 p->pkt[(*next_idx)+4]);
@@ -458,7 +458,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         *next_idx += 2;
         build->result = malloc(sizeof(char) * 262); // allow for "65536 "
         memct_str++;
-        int pref_len = sprintf(build->result, "%d ", mx_preference);
+        int pref_len = snprintf(build->result, 7, "%d ", mx_preference);
         if(parse_name(build->result + pref_len, p, dh->pkt_idx, next_idx)) {
             success = 1;
         } else {
@@ -482,7 +482,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         *next_idx += 2;
         build->result = malloc(sizeof(char) * 262); // allow for "65536 "
         memct_str++;
-        int port_len = sprintf(build->result, "%d ", srv_port);
+        int port_len = snprintf(build->result, 7, "%d ", srv_port);
         if(parse_name(build->result + port_len, p, dh->pkt_idx, next_idx)) {
             success = 1;
         } else {
