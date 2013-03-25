@@ -26,6 +26,9 @@
 #include "dns_types.h"
 #include "debug.h"
 
+#define SHOW_NO_QD_WARNING (0)
+#define MAX_LABELS (100)
+
 // dynamic memory counts
 int memct_qsec = 0;
 int memct_rsec = 0;
@@ -116,9 +119,11 @@ int is_valid_header(struct dnsheader *h) {
         if(h->ancount == 0) {
             return 0;
         }
+#if SHOW_NO_QD_WARNING
         if(h->qdcount == 0) {
             fprintf(stderr, "Parsing response with 0 QDs... trying anyways (counts %d %d %d %d)\n", h->qdcount, h->ancount, h->nscount, h->arcount);
         }
+#endif
         if(h->tc) {
             fprintf(stderr, "DNS message truncated... this could cause problems.\n");
         }
@@ -213,7 +218,7 @@ int parse_name(char *str, struct packet *p, int dh_start, int *idx) {
             *idx += label_len;
             str_pos += label_len;
         }
-        if(runaway++ > 12) {
+        if(runaway++ > MAX_LABELS) {
             fprintf(stderr, "parse_name: runaway\n");
             break;
         }
@@ -317,6 +322,9 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
     if(!parse_name(&name[0], p, dh->pkt_idx, next_idx)) {
         // abnormal exit (parse error etc)
         fprintf(stderr, "Failed parse_name for RR name\n");
+        name[255] = 0;
+        fprintf(stderr, name);
+        fprintf(stderr, "\n");
         free_rsection(build);
         return 0;
     }
