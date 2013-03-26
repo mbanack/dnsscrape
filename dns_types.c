@@ -58,6 +58,7 @@ const char QT_MAILA[] = "MAILA";
 const char QT_WILD[] = "*";
 const char QT_AAAA[] = "AAAA";
 const char QT_SRV[] = "SRV";
+const char QT_NSEC[] = "NSEC";
 
 uint32_t parse_u32(const uint8_t *pkt, int start_idx, int end_idx) {
     assert(start_idx <= end_idx);
@@ -322,9 +323,6 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
     if(!parse_name(&name[0], p, dh->pkt_idx, next_idx)) {
         // abnormal exit (parse error etc)
         fprintf(stderr, "Failed parse_name for RR name\n");
-        name[255] = 0;
-        fprintf(stderr, name);
-        fprintf(stderr, "\n");
         free_rsection(build);
         return 0;
     }
@@ -498,6 +496,10 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         }
         build->result[261] = 0;
         break;
+    case 47: // NSEC (DNS-SEC stuff)
+        fprintf(stderr, "Unhandled: NSET\n");
+        *next_idx += rdlength;
+        break;
     default:
         fprintf(stderr, "Unknown RR type %d\n", build->rrtype);
         *next_idx += rdlength;
@@ -601,6 +603,8 @@ const char* qtype_str(uint16_t qtype) {
         return (const char*)&QT_AAAA;
     case 33: // MDNS
         return (const char*)&QT_SRV;
+    case 47: // NSEC
+        return (const char*)&QT_NSEC;
     default:
         fprintf(stderr, "unknown query type %d\n", qtype);
         return (const char*)&QT_UNKNOWN;

@@ -45,6 +45,7 @@ extern const char QT_MAILA[];
 extern const char QT_WILD[];
 extern const char QT_AAAA[];
 extern const char QT_SRV[];
+extern const char QT_NSEC[];
 
 struct dnsheader {
     unsigned int pkt_idx;
