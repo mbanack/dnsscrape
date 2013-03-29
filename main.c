@@ -81,7 +81,7 @@ void scrape_loop(pcap_t *capdev) {
                 // if any parsing fails, drop it altogether, it's probably
                 //   something that just *looks* like DNS ;)
 
-                if(dh->qdcount > 4 || dh->ancount > 20 || dh->nscount > 8 || dh->arcount > 20) {
+                if(dh->qdcount > 8 || dh->ancount > 20 || dh->nscount > 8 || dh->arcount > 20) {
                     if(!quiet) {
                         fprintf(stderr, "Insane counts (%d %d %d %d)\n",
                                 dh->qdcount, dh->ancount, dh->nscount, dh->arcount);
