@@ -526,7 +526,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         build->result[261] = 0;
         break;
     case 47: // NSEC (DNS-SEC stuff)
-        fprintf(stderr, "Unhandled: NSET\n");
+        fprintf(stderr, "Unhandled: NSEC\n");
         *next_idx += rdlength;
         break;
     default:
@@ -670,18 +670,16 @@ int is_tcp(struct packet *p) {
 }
 
 void print_packet_info(struct ipheader *ih, struct udpheader *uh) {
-    struct in_addr a;
-    a.s_addr = ih->src_ip;
-    printf("%s:%d -> ", inet_ntoa(a), uh->src_port);
-    struct in_addr b;
-    b.s_addr = ih->dst_ip;
-    printf("%s:%d\n", inet_ntoa(b), uh->dst_port);
-    /*
-    printf("%s:%d -> %s:%d\n",
-            inet_ntoa(a),
-            uh->src_port,
-            inet_ntoa(b),
-            uh->dst_port);
-            */
+                    struct in_addr src = {ih->src_ip};
+                    char src_ip[50];
+                    src_ip[50] = 0;
+                    char * tmp_str = inet_ntop(src);
+                    strncpy(src_ip, tmp_str, strlen(tmp_str) + 1);
+                    struct in_addr dst = {ih->dst_ip};
+                    char dst_ip[50];
+                    dst_ip[50] = 0;
+                    tmp_str = inet_ntop(dst);
+                    strncpy(dst_ip, tmp_str, strlen(tmp_str) + 1);
+    printf("%s:%d -> %s:%d\n", src_ip, uh->src_port, dst_ip, uh->dst_port);
 }
 
