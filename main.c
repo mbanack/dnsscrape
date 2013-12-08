@@ -19,11 +19,16 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <getopt.h>
 #include <stdint.h>
 #include <string.h>
 #include <pcap/pcap.h>
 #include <arpa/inet.h>
 #include <assert.h>
+#include <libconfig.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "debug.h"
 #include "dns_types.h"
@@ -218,6 +223,17 @@ void scrape_loop(pcap_t *capdev) {
 }
 
 const char DEFAULT_IFNAME[] = "";
+const char DEFAULT_CONFIG[] = "/etc/dnsscrape.conf";
+// default config file ~/.dnsscrape
+// later move to /etc/dnsscrape.conf
+
+#define OPT_SECTIONCOUNTS (0)
+#define OPT_QUIET (1)
+#define OPT_IFNAME (2)
+#define OPT_FNAME (3)
+#define OPT_CONFIGNAME (4)
+#define OPT_ONLY53 (5)
+#define NUM_OPTS (6)
 
 int main(int argc, char *argv[]) {
     int opt;
@@ -226,34 +242,110 @@ int main(int argc, char *argv[]) {
     quiet = 0;
     show_section_counts = 0;
     char *ifname;
+    const char *conf_ifname;
     char *fname;
-    while((opt = getopt(argc, argv, "qci:f:")) != -1) {
+    char *configname;
+    int only53 = 0;
+    
+    // has this option been set on the command line?
+    //   if so, override any conf value
+    int cmdline_set[NUM_OPTS];
+    for(int i = 0; i < NUM_OPTS; i++) {
+        cmdline_set[i] = 0;
+    }
+
+    int option_index = 0;
+    struct option long_options[] = {
+        {"config",  required_argument, 0, 'c'},
+        {"counts",  no_argument,       0, 'n'},
+        {"53",      no_argument,       &only53, 1},
+        {0, 0, 0, 0}
+    };
+    while((opt = getopt_long(argc, argv, "nqi:f:c:",
+                    long_options, &option_index)) != -1) {
         switch (opt) {
-        case 'c':
+        case 'n':
+            cmdline_set[OPT_SECTIONCOUNTS] = 1;
             show_section_counts = 1;
             break;
         case 'q':
+            cmdline_set[OPT_QUIET] = 1;
             quiet = 1;
             break;
         case 'i':
+            cmdline_set[OPT_IFNAME] = 1;
             ifname = optarg;
             ifnd = 1;
             break;
         case 'f':
+            cmdline_set[OPT_FNAME] = 1;
             fname = optarg;
             ffnd = 1;
             break;
+        case 'c':
+            cmdline_set[OPT_CONFIGNAME] = 1;
+            configname = optarg;
+            break;
+        case 0: // getopt_long set a variable, just keep going
+            break;
         default:
             fprintf(stderr,
-"Usage: %s [-p] [-q] [-i iface] [-f file.pcap]\n\
--i: use specified intreface for capture.\n\
+"Usage: %s [--53] [-p] [-q] [-i iface | -f file.pcap] [-c | --config filename]\n\
+-i: use specified interface for capture.\n\
 -f: run using saved pcap file.  If -f is given, -i is ignored.\n\
--c: show section counts\n\
--q: quiet\n",
+-n: show section counts (also --counts)\n\
+-q: quiet\n\
+-c filename, --config filename: specify config file\n\
+--53: only parse packets on port 53\n",
                     argv[0]);
             exit(EXIT_FAILURE);
         }
     }
+
+    if(only53) {
+        cmdline_set[OPT_ONLY53] = 1;
+    }
+
+
+    if(cmdline_set[OPT_CONFIGNAME]) {
+        // set above
+    } else {
+        configname = (char*)&DEFAULT_CONFIG[0];
+    }
+
+    printf("configname is %s\n", configname);
+    // try to load config file
+    //   but command line options should override config file
+    int conf_test = access(configname, R_OK);
+    if(conf_test == 0) {
+        config_t cfg;
+        config_init(&cfg);
+
+        if(!config_read_file(&cfg, configname)) {
+            printf("config read failed: %s at %d\n", config_error_text(&cfg), config_error_line(&cfg));
+            config_destroy(&cfg);
+        } else {
+            if(!cmdline_set[OPT_SECTIONCOUNTS]) {
+                config_lookup_bool(&cfg, "sectioncounts", &show_section_counts);
+            }
+            if(!cmdline_set[OPT_QUIET]) {
+                config_lookup_bool(&cfg, "quiet", &quiet);
+            }
+            if(!cmdline_set[OPT_IFNAME]) {
+                if(config_lookup_string(&cfg, "ifname", &conf_ifname)) {
+                    strncpy(ifname, conf_ifname, strlen(conf_ifname));
+                    ifnd = 1;
+                }
+            }
+            if(!cmdline_set[OPT_ONLY53]) {
+                config_lookup_bool(&cfg, "only53", &only53);
+            }
+        }
+        config_destroy(&cfg);
+    } else {
+        printf("Couldn't find conf file %s\n", configname);
+    }
+
 
     if(quiet) {
         show_section_counts = 0;
@@ -299,7 +391,7 @@ int main(int argc, char *argv[]) {
         int act_ret = pcap_activate(capdev);
 
         if(!!act_ret) {
-            fprintf(stderr, "Could not activate capture device (code %d).  Sorry!\n", act_ret);
+            fprintf(stderr, "\nCould not activate capture device (code %d).  Sorry!\n", act_ret);
             fprintf(stderr, "  pcap says: %s\n", pcap_geterr(capdev));
             return act_ret;
         }
