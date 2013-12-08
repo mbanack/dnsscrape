@@ -6,4 +6,4 @@ Usage: dnsscrape [--53] [-p] [-q] [-i iface | -f file.pcap] [-c | --config filen
  -c filename, --config filename: specify config file  
  --53: only parse packets on port 53  
 
-Currently supports UDP only
+Currently supports UDP only, packets less than 512 bytes, unfragmented packets
