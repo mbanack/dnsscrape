@@ -41,6 +41,8 @@ void scrape_loop(pcap_t *capdev) {
     const u_char *pkt;
     struct pcap_pkthdr hdr;
     struct packet p;
+    struct ipheader ihead;
+    struct udpheader uhead;
     struct dnsheader dhead;
     struct dnsheader *dh = &dhead;
     uint32_t internal_packet_no = 0;
@@ -66,10 +68,20 @@ void scrape_loop(pcap_t *capdev) {
 
         if(is_udp(&p)) {
             if(p.len >= 55 && p.len <= 512) {
-                parse_header(dh, &p, 42);
-                if(!is_valid_header(dh)) {
+                parse_ipheader(&ihead, &p, 14);
+                if(ihead.header_length < 5) {
+                    // are our ip and udp headers the expected length?
+                    fprintf(stderr, "Bad IP header length %d\n", ihead.header_length);
+                    //continue;
+                }
+                parse_udpheader(&uhead, &p, 14 + (ihead.header_length << 2));
+                parse_dnsheader(dh, &p, 14 + (ihead.header_length << 2) + 8);
+                print_packet_info(&ihead, &uhead);
+                if(!is_valid_dnsheader(dh)) {
+                    //fprintf(stderr, "Failed parsing dns header\n");
                     continue;
                 }
+
                 
                 // and so we are here...
                 // do I want to parse them as the same?
@@ -388,12 +400,23 @@ int main(int argc, char *argv[]) {
         //    snaplen, promisc/monitor, timeout, buffer_size, timestamp type
         //pcap_setfilter(capdev, ?????); // have option to set just port 53 :)
         // but it is *really nice* to be able to sniff dns on non-53 ports
-        int act_ret = pcap_activate(capdev);
 
+        int act_ret = pcap_activate(capdev);
         if(!!act_ret) {
             fprintf(stderr, "\nCould not activate capture device (code %d).  Sorry!\n", act_ret);
             fprintf(stderr, "  pcap says: %s\n", pcap_geterr(capdev));
             return act_ret;
+        }
+
+        if(only53) {
+            fprintf(stderr, "Trying to filter to port 53 only\n");
+            struct bpf_program fp;
+            if(!!pcap_compile(capdev, &fp, "port 53", 1, PCAP_NETMASK_UNKNOWN)) {
+                fprintf(stderr, "Couldn't compile filter\n");
+                if(!!pcap_setfilter(capdev, &fp)) {
+                    fprintf(stderr, "Couldn't set filter\n");
+                }
+            }
         }
 
         pcap_set_promisc(capdev, 1);

@@ -64,12 +64,36 @@ struct dnsheader {
     uint16_t arcount;
 };
 
+struct ipheader {
+    uint8_t version;
+    uint8_t header_length; // in 32-bit words, min 5 for valid header
+    uint8_t diff_services;
+    uint16_t packet_length;
+    uint16_t id;
+    uint16_t flags_and_fragment_offset;
+    uint8_t ttl;
+    uint8_t protocol;
+    uint16_t header_checksum;
+    uint32_t src_ip;
+    uint32_t dst_ip;
+    uint32_t padded_options;
+};
+
+struct udpheader {
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint16_t length; // udp header + data
+    uint16_t checksum;
+};
+
 struct packet {
     uint32_t len;
     const uint8_t *pkt;
 };
 
 int is_udp(struct packet *p);
+int is_tcp(struct packet *p);
+void print_packet_info(struct ipheader *ih, struct udpheader *uh);
 
 struct qsection {
     struct qsection *next;
@@ -109,10 +133,12 @@ void free_rsection(struct rsection *r);
 int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         struct rsection **rtail, int *next_idx);
 
-uint32_t parse_u32(const uint8_t *pkt, int start_idx, int end_idx);
-uint16_t parse_u16(const uint8_t *pkt, int start_idx, int end_idx);
-void parse_header(struct dnsheader *dh, struct packet *p, int start_idx);
-int is_valid_header(struct dnsheader *h);
+uint32_t parse_u32(const uint8_t *pkt, int start_idx);
+uint16_t parse_u16(const uint8_t *pkt, int start_idx);
+void parse_ipheader(struct ipheader *ih, struct packet *p, int start_idx);
+void parse_udpheader(struct udpheader *uh, struct packet *p, int start_idx);
+void parse_dnsheader(struct dnsheader *dh, struct packet *p, int start_idx);
+int is_valid_dnsheader(struct dnsheader *h);
 char* rdata_str(const uint8_t *pkt, uint16_t type, int start_idx, uint16_t len);
 char* get_query_name(const u_char *pkt, int start_idx, int pkt_len, \
         int *ret_len, int *next_idx);

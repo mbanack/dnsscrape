@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <arpa/inet.h>
 
 #include "dns_types.h"
 #include "debug.h"
@@ -60,27 +61,55 @@ const char QT_AAAA[] = "AAAA";
 const char QT_SRV[] = "SRV";
 const char QT_NSEC[] = "NSEC";
 
-uint32_t parse_u32(const uint8_t *pkt, int start_idx, int end_idx) {
-    assert(start_idx <= end_idx);
-    uint32_t ret = 0;
-    for(int i=start_idx; i<=end_idx; i++) {
-        ret |= pkt[i];
-        if(i != end_idx) {
-            ret = ret << 8;
-        }
-    }
-    return ret;
+// grab 4 bytes starting at start_idx, parse as uint32
+//   pkt length must be >= start_idx + 4
+uint32_t parse_u32(const uint8_t *pkt, int start_idx) {
+    return (pkt[start_idx] << 24) 
+        | (pkt[start_idx + 1] << 16)
+        | (pkt[start_idx + 2] << 8)
+        | (pkt[start_idx + 3]);
 }
 
-uint16_t parse_u16(const uint8_t *pkt, int start_idx, int end_idx) {
-    return (pkt[start_idx] << 8) | pkt[end_idx];
+// grab 2 bytes starting at start_idx, parse as uint16
+//   pkt length must be >= start_idx + 3
+uint16_t parse_u16(const uint8_t *pkt, int start_idx) {
+    return (pkt[start_idx] << 8) | pkt[start_idx + 1];
 }
 
-void parse_header(struct dnsheader *dh, struct packet *p, int start_idx) {
+// parse_ipheader makes no attempt to validate the data
+//   and p->pkt must be predetermined to have minimum length
+void parse_ipheader(struct ipheader *ih, struct packet *p, int start_idx) {
+    const uint8_t *pkt = p->pkt;
+    ih->version = (pkt[start_idx] & 0xF0) >> 4;
+    ih->header_length = pkt[start_idx] & 0x0F;
+    ih->diff_services = pkt[start_idx + 1];
+    ih->packet_length = parse_u16(pkt, start_idx + 2);
+    ih->id = parse_u16(pkt, start_idx + 4);
+    ih->flags_and_fragment_offset = parse_u16(pkt, start_idx + 6);
+    ih->ttl = pkt[start_idx + 8];
+    ih->protocol = pkt[start_idx + 9];
+    ih->header_checksum = parse_u16(pkt, start_idx + 10);
+    ih->src_ip = ntohl(parse_u32(pkt, start_idx + 12));
+    ih->dst_ip = ntohl(parse_u32(pkt, start_idx + 16));
+    ih->padded_options = parse_u32(pkt, start_idx + 20);
+}
+
+// parse_udpheader makes no attempt to validate the data
+//   and p->pkt must be predetermined to have minimum length
+void parse_udpheader(struct udpheader *uh, struct packet *p, int start_idx) {
+    const uint8_t *pkt = p->pkt;
+    uh->src_port = parse_u16(pkt, start_idx);
+    uh->dst_port = parse_u16(pkt, start_idx + 2);
+
+}
+
+// parse_dnsheader makes no attempt to validate the data
+//   and p->pkt must be predetermined to have minimum length
+void parse_dnsheader(struct dnsheader *dh, struct packet *p, int start_idx) {
     const uint8_t *pkt = p->pkt;
 
     dh->pkt_idx = start_idx;
-    dh->id = parse_u16(pkt, start_idx, start_idx+1);
+    dh->id = parse_u16(pkt, start_idx);
     uint8_t b = pkt[start_idx+2];
     dh->qr = b >> 7;
     dh->opcode = (b & 0x78) >> 3;
@@ -91,10 +120,10 @@ void parse_header(struct dnsheader *dh, struct packet *p, int start_idx) {
     dh->ra = b >> 7;
     dh->z = (b & 0x70) >> 4;
     dh->rcode = (b & 0xF);
-    dh->qdcount = parse_u16(pkt, start_idx+4, start_idx+5);
-    dh->ancount = parse_u16(pkt, start_idx+6, start_idx+7);
-    dh->nscount = parse_u16(pkt, start_idx+8, start_idx+9);
-    dh->arcount = parse_u16(pkt, start_idx+10, start_idx+11);
+    dh->qdcount = parse_u16(pkt, start_idx+4);
+    dh->ancount = parse_u16(pkt, start_idx+6);
+    dh->nscount = parse_u16(pkt, start_idx+8);
+    dh->arcount = parse_u16(pkt, start_idx+10);
 }
 
 // this is based on a cursory reading of rfc1035
@@ -102,7 +131,7 @@ void parse_header(struct dnsheader *dh, struct packet *p, int start_idx) {
 // also, for my purposes I may consider a technically valid
 // header invalid simply to reduce further processing overhead
 // ie I don't care about a query or response with a 0 count
-int is_valid_header(struct dnsheader *h) {
+int is_valid_dnsheader(struct dnsheader *h) {
     if(h->z != 0) {
         return 0;
     }
@@ -159,8 +188,8 @@ int append_qsection(struct packet *p, struct dnsheader *dh, \
     const uint8_t *pkt = p->pkt;
 
     if(parse_name(build->qname, p, dh->pkt_idx, next_idx)) {
-        build->qtype = parse_u16(pkt, (*next_idx), (*next_idx)+1);
-        build->qclass = parse_u16(pkt, (*next_idx)+2, (*next_idx)+3);
+        build->qtype = parse_u16(pkt, (*next_idx));
+        build->qclass = parse_u16(pkt, (*next_idx)+2);
         build->qname[255] = 0; // paranoia!
         *next_idx += 4;
 
@@ -196,7 +225,7 @@ int parse_name(char *str, struct packet *p, int dh_start, int *idx) {
             return 1;
         }
         if((chunklen & 0xC0) == 0xC0) { // label pointer
-            uint16_t offset = 0x3FFF & parse_u16(p->pkt, *idx, (*idx)+1);
+            uint16_t offset = 0x3FFF & parse_u16(p->pkt, *idx);
             if((uint32_t)dh_start + offset >= p->len) {
                 fprintf(stderr, "parse_name: dh_start + offset >= p->len for (%d %d %d)\n", dh_start, offset, p->len);
                 break;
@@ -272,7 +301,7 @@ int append_name(char *str, int str_pos, struct packet *p, int dh_start, \
                 return -1;
             }
             uint16_t offset = 0x3FFF & parse_u16(p->pkt,
-                    (pkt_idx + num_appended), (pkt_idx + num_appended + 1));
+                    (pkt_idx + num_appended));
             if((uint32_t)dh_start + offset >= p->len) {
                 fprintf(stderr, "parse_name: dh_start + offset >= p->len for (%d %d %d)\n", dh_start, offset, p->len);
                 break;
@@ -336,10 +365,10 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
     }
 
     build->type = type; // type is my classification of AN/NS/AR
-    build->rrtype = parse_u16(pkt, (*next_idx), (*next_idx)+1); // RR type
+    build->rrtype = parse_u16(pkt, (*next_idx)); // RR type
     // skip class and ttl of 2 and 4 bytes respectively
     *next_idx += 2 + 2 + 4;
-    uint16_t rdlength = parse_u16(pkt, (*next_idx), (*next_idx)+1);
+    uint16_t rdlength = parse_u16(pkt, (*next_idx));
     *next_idx += 2;
 
     // BOUNDS CHECK: next_idx --> rdlength
@@ -460,7 +489,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         success = 1;
         break;
     case 15: { // MX
-        uint16_t mx_preference = parse_u16(p->pkt, (*next_idx), (*next_idx)+1);
+        uint16_t mx_preference = parse_u16(p->pkt, (*next_idx));
         *next_idx += 2;
         build->result = malloc(sizeof(char) * 262); // allow for "65536 "
         memct_str++;
@@ -484,7 +513,7 @@ int append_rsection(struct packet *p, struct dnsheader *dh, int type, \
         break;
     case 33: // SRV (MDNS stuff)
         *next_idx += 4; // skip priority, weight
-        uint16_t srv_port = parse_u16(p->pkt, (*next_idx), (*next_idx)+1);
+        uint16_t srv_port = parse_u16(p->pkt, (*next_idx));
         *next_idx += 2;
         build->result = malloc(sizeof(char) * 262); // allow for "65536 "
         memct_str++;
@@ -638,5 +667,17 @@ int is_tcp(struct packet *p) {
         return 0;
     }
     return p->pkt[0x17] == 6;
+}
+
+void print_packet_info(struct ipheader *ih, struct udpheader *uh) {
+    struct in_addr a;
+    a.s_addr = ih->src_ip;
+    struct in_addr b;
+    b.s_addr = ih->dst_ip;
+    printf("%s:%d -> %s:%d\n",
+            inet_ntoa(a),
+            uh->src_port,
+            inet_ntoa(b),
+            uh->dst_port);
 }
 
