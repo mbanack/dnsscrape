@@ -672,12 +672,16 @@ int is_tcp(struct packet *p) {
 void print_packet_info(struct ipheader *ih, struct udpheader *uh) {
     struct in_addr a;
     a.s_addr = ih->src_ip;
+    printf("%s:%d -> ", inet_ntoa(a), uh->src_port);
     struct in_addr b;
     b.s_addr = ih->dst_ip;
+    printf("%s:%d\n", inet_ntoa(b), uh->dst_port);
+    /*
     printf("%s:%d -> %s:%d\n",
             inet_ntoa(a),
             uh->src_port,
             inet_ntoa(b),
             uh->dst_port);
+            */
 }
 

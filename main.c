@@ -50,6 +50,7 @@ void scrape_loop(pcap_t *capdev) {
         // should be using _dispatch() or _loop()
         
 
+
         fflush(stdout);
         fflush(stderr);
         p.len = 0;
@@ -76,7 +77,9 @@ void scrape_loop(pcap_t *capdev) {
                 }
                 parse_udpheader(&uhead, &p, 14 + (ihead.header_length << 2));
                 parse_dnsheader(dh, &p, 14 + (ihead.header_length << 2) + 8);
+#ifdef DEBUG_IP_PORT
                 print_packet_info(&ihead, &uhead);
+#endif
                 if(!is_valid_dnsheader(dh)) {
                     //fprintf(stderr, "Failed parsing dns header\n");
                     continue;
@@ -234,7 +237,7 @@ void scrape_loop(pcap_t *capdev) {
     }
 }
 
-const char DEFAULT_IFNAME[] = "";
+const char DEFAULT_IFNAME[] = "any";
 const char DEFAULT_CONFIG[] = "/etc/dnsscrape.conf";
 // default config file ~/.dnsscrape
 // later move to /etc/dnsscrape.conf
@@ -253,7 +256,9 @@ int main(int argc, char *argv[]) {
     int ffnd = 0;
     quiet = 0;
     show_section_counts = 0;
-    char *ifname;
+    char ifname[128];
+    ifname[0] = 0;
+    ifname[127] = 0;
     const char *conf_ifname;
     char *fname;
     char *configname;
@@ -286,7 +291,7 @@ int main(int argc, char *argv[]) {
             break;
         case 'i':
             cmdline_set[OPT_IFNAME] = 1;
-            ifname = optarg;
+            strncpy(ifname, optarg, strlen(optarg) + 1);
             ifnd = 1;
             break;
         case 'f':
@@ -345,7 +350,11 @@ int main(int argc, char *argv[]) {
             }
             if(!cmdline_set[OPT_IFNAME]) {
                 if(config_lookup_string(&cfg, "ifname", &conf_ifname)) {
-                    strncpy(ifname, conf_ifname, strlen(conf_ifname));
+                    if(strlen(conf_ifname) < 128) {
+                        strncpy(&ifname[0], conf_ifname, strlen(conf_ifname) + 1);
+                    } else {
+                        fprintf(stderr, "Conf ifname too long\n");
+                    }
                     ifnd = 1;
                 }
             }
@@ -364,6 +373,7 @@ int main(int argc, char *argv[]) {
     }
 
     char ebuf[PCAP_ERRBUF_SIZE];
+    ebuf[0] = 0;
     if(ffnd) {
         if(!quiet) {
             printf("Using saved PCAP file %s\n", fname);
@@ -377,15 +387,15 @@ int main(int argc, char *argv[]) {
         pcap_set_buffer_size(capdev, 1024);
 
         //pcap_setfilter(capdev, ?????); // have option to set just port 53 :)
-        // but it is *really nice* to be able to sniff dns on non-53 ports
+        // but it is nice to be able to sniff dns on non-53 ports
+        //  (mdns stuff etc)
         scrape_loop(capdev);
 
         pcap_close(capdev);
     } else {
         if(!ifnd) {
             printf("Using default device \"any\"... override with \"-i ifname\"\n");
-            // pcap_create will use "any" if given "", so default to that
-            ifname = (char*)&DEFAULT_IFNAME[0];
+            strncpy(ifname, (char*)&DEFAULT_IFNAME[0], strlen(DEFAULT_IFNAME) + 1);
         }
 
         if(!quiet) {
@@ -396,25 +406,23 @@ int main(int argc, char *argv[]) {
         if(!capdev) {
             fprintf(stderr, "pcap_create failed.  %s\n", ebuf);
         }
-        // set options on capdev ?
-        //    snaplen, promisc/monitor, timeout, buffer_size, timestamp type
-        //pcap_setfilter(capdev, ?????); // have option to set just port 53 :)
-        // but it is *really nice* to be able to sniff dns on non-53 ports
 
         int act_ret = pcap_activate(capdev);
         if(!!act_ret) {
             fprintf(stderr, "\nCould not activate capture device (code %d).  Sorry!\n", act_ret);
             fprintf(stderr, "  pcap says: %s\n", pcap_geterr(capdev));
+            debug_enum_devs();
             return act_ret;
         }
 
         if(only53) {
-            fprintf(stderr, "Trying to filter to port 53 only\n");
+            fprintf(stderr, "Trying to filter to port 53 only\n\n");
             struct bpf_program fp;
-            if(!!pcap_compile(capdev, &fp, "port 53", 1, PCAP_NETMASK_UNKNOWN)) {
-                fprintf(stderr, "Couldn't compile filter\n");
+            if(!!pcap_compile(capdev, &fp, "port 53", 0, PCAP_NETMASK_UNKNOWN)) {
+                fprintf(stderr, "Couldn't compile filter: %s\n", pcap_geterr(capdev));
+            } else {
                 if(!!pcap_setfilter(capdev, &fp)) {
-                    fprintf(stderr, "Couldn't set filter\n");
+                    fprintf(stderr, "Couldn't set filter: %s\n", pcap_geterr(capdev));
                 }
             }
         }
@@ -425,7 +433,14 @@ int main(int argc, char *argv[]) {
         scrape_loop(capdev);
 
         pcap_close(capdev);
+        struct pcap_stat stats;
+        if(!!pcap_stats(capdev, &stats)) {
+            fprintf(stderr, "pcap_stats: %d %d %d\n", stats.ps_recv, stats.ps_drop, stats.ps_ifdrop);
+        } else {
+            fprintf(stderr, "Couldn't get pcap_stats: %s\n", pcap_geterr(capdev));
+        }
     }
+
     return 0;
 }
 

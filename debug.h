@@ -20,6 +20,7 @@
 #define DNSSCRAPE_DEBUG_H
 
 #define DEBUG_MALLOC_FREE (0)
+//#define DEBUG_IP_PORT (1)
 
 extern int memct_rsec;
 extern int memct_qsec;

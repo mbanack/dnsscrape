@@ -26,6 +26,7 @@
 #include <assert.h>
 
 void debug_enum_devs() {
+    fprintf(stderr, "\nPrinting all devices for you:\n\n");
     char errbuf[1024];
     pcap_if_t *alldevsp;
     int ret = pcap_findalldevs(&alldevsp, errbuf);
@@ -35,7 +36,6 @@ void debug_enum_devs() {
         return;
     }
 
-    printf("%p\n", (void*)&alldevsp);
 
     if(!alldevsp) {
         fprintf(stderr, "No devices available for capture... are you root?\n");
@@ -59,8 +59,14 @@ void debug_enum_devs() {
             struct in_addr i_a = addr->sin_addr;
             uint32_t ip = i_a.s_addr;*/
             struct sockaddr *s_a = addrwalk->addr;
-            char dst[1024];
-            printf("    %s\n", inet_ntop(s_a->sa_family, s_a->sa_data, dst, 1024));
+            if(s_a) {
+                const char *ret;
+                char dst[1024];
+                ret = inet_ntop(s_a->sa_family, s_a->sa_data, dst, 1024);
+                if(ret) {
+                    printf("    %s\n", ret);
+                }
+            }
             addrwalk = addrwalk->next;
         }
         curif = curif->next;
