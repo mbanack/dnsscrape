@@ -216,37 +216,33 @@ void scrape_loop(pcap_t *capdev) {
 
                 struct qsection *qtrav = qroot;
                 while(qtrav) {
-                    if(rroot) {
-                        // visually show that this is part of a response
-                        printf("  ");
-                    }
+                    // for now assume IPV4
                     struct in_addr src = {ihead.src_ip};
                     char src_ip[50];
-                    src_ip[50] = 0;
-                    char * tmp_str = inet_ntop(src);
-                    strncpy(src_ip, tmp_str, strlen(tmp_str) + 1);
                     struct in_addr dst = {ihead.dst_ip};
                     char dst_ip[50];
-                    dst_ip[50] = 0;
-                    tmp_str = inet_ntop(dst);
-                    strncpy(dst_ip, tmp_str, strlen(tmp_str) + 1);
-                    printf("(%s -> %s) %s %s\n", src_ip, dst_ip, qtype_str(qtrav->qtype), qtrav->qname);
+                    if(rroot) {
+                        printf("    (%s <- %s) %s %s\n", inet_ntop(AF_INET, &dst, dst_ip, 50),
+                                inet_ntop(AF_INET, &src, src_ip, 50), 
+                                qtype_str(qtrav->qtype), qtrav->qname);
+                    } else {
+                        printf("(%s -> %s) %s %s\n", inet_ntop(AF_INET, &src, src_ip, 50), 
+                                inet_ntop(AF_INET, &dst, dst_ip, 50),
+                                qtype_str(qtrav->qtype), qtrav->qname);
+                    }
                     qtrav = qtrav->next;
                 }
 
                 struct rsection *rtrav = rroot;
                 while(rtrav) {
+                    // for now assume IPV4
                     struct in_addr src = {ihead.src_ip};
                     char src_ip[50];
-                    src_ip[50] = 0;
-                    char * tmp_str = inet_ntop(src);
-                    strncpy(src_ip, tmp_str, strlen(tmp_str) + 1);
                     struct in_addr dst = {ihead.dst_ip};
                     char dst_ip[50];
-                    dst_ip[50] = 0;
-                    tmp_str = inet_ntop(dst);
-                    strncpy(dst_ip, tmp_str, strlen(tmp_str) + 1);
-                    printf("(%s <- %s) %s %s\n", dst_ip, src_ip, rrtype_str(rtrav->rrtype), rtrav->result);
+                    printf("  (%s <- %s) %s %s\n", inet_ntop(AF_INET, &dst, dst_ip, 50),
+                            inet_ntop(AF_INET, &src, src_ip, 50),
+                            rrtype_str(rtrav->rrtype), rtrav->result);
                     rtrav = rtrav->next;
                 }
 
