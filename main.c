@@ -220,13 +220,33 @@ void scrape_loop(pcap_t *capdev) {
                         // visually show that this is part of a response
                         printf("  ");
                     }
-                    printf("-> %s %s\n", qtype_str(qtrav->qtype), qtrav->qname);
+                    struct in_addr src = {ihead.src_ip};
+                    char src_ip[50];
+                    src_ip[50] = 0;
+                    char * tmp_str = inet_ntop(src);
+                    strncpy(src_ip, tmp_str, strlen(tmp_str) + 1);
+                    struct in_addr dst = {ihead.dst_ip};
+                    char dst_ip[50];
+                    dst_ip[50] = 0;
+                    tmp_str = inet_ntop(dst);
+                    strncpy(dst_ip, tmp_str, strlen(tmp_str) + 1);
+                    printf("(%s -> %s) %s %s\n", src_ip, dst_ip, qtype_str(qtrav->qtype), qtrav->qname);
                     qtrav = qtrav->next;
                 }
 
                 struct rsection *rtrav = rroot;
                 while(rtrav) {
-                    printf("<- %s %s\n", rrtype_str(rtrav->rrtype), rtrav->result);
+                    struct in_addr src = {ihead.src_ip};
+                    char src_ip[50];
+                    src_ip[50] = 0;
+                    char * tmp_str = inet_ntop(src);
+                    strncpy(src_ip, tmp_str, strlen(tmp_str) + 1);
+                    struct in_addr dst = {ihead.dst_ip};
+                    char dst_ip[50];
+                    dst_ip[50] = 0;
+                    tmp_str = inet_ntop(dst);
+                    strncpy(dst_ip, tmp_str, strlen(tmp_str) + 1);
+                    printf("(%s <- %s) %s %s\n", dst_ip, src_ip, rrtype_str(rtrav->rrtype), rtrav->result);
                     rtrav = rtrav->next;
                 }
 
